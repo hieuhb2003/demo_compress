@@ -22,6 +22,7 @@ class AzureAIClient:
         response = self.client.chat.completions.create(
             model=self.settings.azure_deployment,
             messages=messages,
+            seed=self.settings.chat_seed,
         )
         latency = time.perf_counter() - started
         message = response.choices[0].message.content or ""

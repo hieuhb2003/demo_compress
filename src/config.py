@@ -20,6 +20,7 @@ class Settings:
     rag_top_k: int
     summary_top_k: int
     llmlingua_rate: float
+    chat_seed: int
 
 
 def load_settings() -> Settings:
@@ -36,6 +37,7 @@ def load_settings() -> Settings:
         rag_top_k=int(os.getenv("RAG_TOP_K", "3")),
         summary_top_k=int(os.getenv("SUMMARY_TOP_K", "1")),
         llmlingua_rate=float(os.getenv("LLMLINGUA_RATE", "0.5")),
+        chat_seed=int(os.getenv("CHAT_SEED", "42")),
     )
 
 
