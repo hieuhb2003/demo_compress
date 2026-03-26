@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import html
+import json
+import time
 
 import pandas as pd
 import streamlit as st
@@ -9,8 +11,11 @@ from src.azure_client import AzureAIClient
 from src.charts import line_chart, metrics_dataframe
 from src.config import load_settings, missing_required_settings
 from src.local_embeddings import LocalEmbeddingClient
+from src.models import ChatTurn, MethodMetrics
+from src.prompt_builders import prepare_prompt
 from src.rag import chunk_text, extract_text_from_upload
 from src.runtime import METHOD_LABELS, build_initial_state, run_all_methods
+from src.tokenizer import count_tokens
 
 
 st.set_page_config(page_title="Prompt Compression Demo", layout="wide")
@@ -34,6 +39,153 @@ def reset_state():
 
 def _escape(text: str) -> str:
     return html.escape(text).replace("\n", "<br>")
+
+
+def _normalize_turns(payload) -> list[dict[str, str]]:
+    if isinstance(payload, dict):
+        if isinstance(payload.get("turns"), list):
+            items = payload["turns"]
+        elif isinstance(payload.get("conversation"), list):
+            items = payload["conversation"]
+        elif isinstance(payload.get("messages"), list):
+            return _turns_from_messages(payload["messages"])
+        else:
+            raise ValueError("JSON must contain `turns`, `conversation`, or `messages`.")
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        raise ValueError("Conversation JSON must be an object or a list.")
+
+    turns = []
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"Turn #{index} must be an object.")
+        user_message = item.get("user_message") or item.get("user") or item.get("question")
+        assistant_message = item.get("assistant_message") or item.get("assistant") or item.get("answer")
+        if user_message is None or assistant_message is None:
+            raise ValueError(
+                f"Turn #{index} must contain `user_message`/`user` and `assistant_message`/`assistant`."
+            )
+        turns.append(
+            {
+                "user_message": str(user_message),
+                "assistant_message": str(assistant_message),
+            }
+        )
+    return turns
+
+
+def _turns_from_messages(messages) -> list[dict[str, str]]:
+    if not isinstance(messages, list):
+        raise ValueError("`messages` must be a list.")
+
+    turns = []
+    pending_user = None
+    for index, message in enumerate(messages, start=1):
+        if not isinstance(message, dict):
+            raise ValueError(f"Message #{index} must be an object.")
+        role = str(message.get("role", "")).strip().lower()
+        content = message.get("content")
+        if content is None:
+            raise ValueError(f"Message #{index} is missing `content`.")
+        content = str(content)
+        if role == "user":
+            if pending_user is not None:
+                raise ValueError("Found two consecutive user messages in uploaded JSON.")
+            pending_user = content
+        elif role == "assistant":
+            if pending_user is None:
+                raise ValueError("Assistant message appears before a user message in uploaded JSON.")
+            turns.append({"user_message": pending_user, "assistant_message": content})
+            pending_user = None
+    if pending_user is not None:
+        raise ValueError("Uploaded `messages` ends with a user message without an assistant reply.")
+    return turns
+
+
+def backfill_imported_metrics(app_state, imported_turns, settings, azure_client, embedding_client) -> int:
+    replay_turns = imported_turns[:10]
+    for state in app_state.method_states.values():
+        state.turns.clear()
+        state.summaries.clear()
+        state.pending_summary_blocks.clear()
+        state.metrics_history.clear()
+
+    for turn in replay_turns:
+        for method_key, state in app_state.method_states.items():
+            artifacts = prepare_prompt(
+                method_key,
+                state,
+                turn.user_message,
+                app_state.rag_chunks,
+                settings,
+                azure_client,
+                embedding_client,
+            )
+            output_tokens = count_tokens(turn.assistant_message)
+            state.metrics_history.append(
+                MethodMetrics(
+                    turn_index=turn.turn_index,
+                    method_key=method_key,
+                    estimated_input_tokens=artifacts.estimated_input_tokens,
+                    actual_input_tokens=artifacts.estimated_input_tokens,
+                    actual_output_tokens=output_tokens,
+                    total_tokens=artifacts.estimated_input_tokens + output_tokens,
+                    latency_seconds=0.0,
+                    compression_ratio=(
+                        len(artifacts.compressed_context) / max(1, len(artifacts.context_text))
+                        if artifacts.compressed_context is not None
+                        else 1.0
+                    ),
+                )
+            )
+            state.turns.append(
+                ChatTurn(
+                    turn_index=turn.turn_index,
+                    user_message=turn.user_message,
+                    assistant_message=turn.assistant_message,
+                    created_at=turn.created_at,
+                )
+            )
+
+    if len(imported_turns) > len(replay_turns):
+        for state in app_state.method_states.values():
+            state.turns.extend(
+                ChatTurn(
+                    turn_index=turn.turn_index,
+                    user_message=turn.user_message,
+                    assistant_message=turn.assistant_message,
+                    created_at=turn.created_at,
+                )
+                for turn in imported_turns[len(replay_turns):]
+            )
+
+    return len(replay_turns)
+
+
+def import_conversation_json(raw_bytes: bytes, app_state, settings, azure_client, embedding_client) -> tuple[int, int]:
+    payload = json.loads(raw_bytes.decode("utf-8"))
+    normalized_turns = _normalize_turns(payload)
+    imported_turns = [
+        ChatTurn(
+            turn_index=index,
+            user_message=turn["user_message"],
+            assistant_message=turn["assistant_message"],
+            created_at=time.time(),
+        )
+        for index, turn in enumerate(normalized_turns, start=1)
+    ]
+
+    estimated_turns = backfill_imported_metrics(
+        app_state,
+        imported_turns,
+        settings,
+        azure_client,
+        embedding_client,
+    )
+
+    st.session_state.pop("latest_results", None)
+    return len(imported_turns), estimated_turns
 
 
 def render_overview_cards(latest_results):
@@ -221,6 +373,13 @@ with st.sidebar:
         accept_multiple_files=True,
     )
 
+    st.header("Upload Conversation")
+    conversation_file = st.file_uploader(
+        "Upload conversation JSON",
+        type=["json"],
+        accept_multiple_files=False,
+    )
+
 app_state = get_app_state()
 
 if missing:
@@ -229,6 +388,28 @@ if missing:
 
 azure_client = AzureAIClient(settings)
 embedding_client = get_embedding_client(settings.local_embedding_model)
+
+if conversation_file is not None:
+    conversation_file_key = conversation_file.file_id if hasattr(conversation_file, "file_id") else conversation_file.name
+    last_import_key = st.session_state.get("last_conversation_import_key")
+    if conversation_file_key != last_import_key:
+        try:
+            imported_count, estimated_turns = import_conversation_json(
+                conversation_file.getvalue(),
+                app_state,
+                settings,
+                azure_client,
+                embedding_client,
+            )
+            st.session_state.last_conversation_import_key = conversation_file_key
+            message = f"Imported {imported_count} turns into all 5 methods."
+            if estimated_turns:
+                message += f" Backfilled estimated token charts for {estimated_turns} imported turns."
+            if imported_count > estimated_turns:
+                message += " Estimated charts currently cover the first 10 imported turns."
+            st.sidebar.success(message)
+        except Exception as exc:
+            st.sidebar.error(f"Conversation import failed: {exc}")
 
 if uploaded_files:
     existing_ids = {chunk.chunk_id for chunk in app_state.rag_chunks}
@@ -265,8 +446,8 @@ with overview_tab:
     render_overview_cards(latest_results)
 
 with windows_tab:
-    if not latest_results:
-        st.info("Submit a message to open the five method windows.")
+    if not app_state.method_states or not any(state.turns for state in app_state.method_states.values()):
+        st.info("Upload a conversation JSON or submit a message to open the five method windows.")
     else:
         render_method_windows(app_state, latest_results)
 
