@@ -40,6 +40,9 @@ class PromptArtifacts:
     compressed_context: Optional[str] = None
     estimated_input_tokens: int = 0
     compressed_input_tokens: Optional[int] = None
+    compression_attempted: bool = False
+    compression_applied: bool = False
+    compression_error: Optional[str] = None
 
 
 @dataclass

@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import time
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
@@ -12,6 +13,7 @@ from src.charts import line_chart, metrics_dataframe
 from src.config import load_settings, missing_required_settings
 from src.local_embeddings import LocalEmbeddingClient
 from src.models import ChatTurn, MethodMetrics
+from src.persistence import init_db, load_snapshot, merge_settings, save_snapshot
 from src.prompt_builders import prepare_prompt
 from src.rag import chunk_text, extract_text_from_upload
 from src.runtime import METHOD_LABELS, build_initial_state, run_all_methods
@@ -35,6 +37,10 @@ def get_app_state():
 def reset_state():
     st.session_state.app_state = build_initial_state()
     st.session_state.pop("latest_results", None)
+    st.session_state.pop("active_settings_payload", None)
+    st.session_state.pop("current_snapshot_id", None)
+    st.session_state.pop("current_snapshot_saved_at", None)
+    st.session_state.pop("last_saved_snapshot_id", None)
 
 
 def _escape(text: str) -> str:
@@ -207,7 +213,7 @@ def render_overview_cards(latest_results):
                 "Preview": result.assistant_message[:140].replace("\n", " "),
             }
         )
-    st.dataframe(pd.DataFrame(cards), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(cards), width="stretch", hide_index=True)
 
 
 def render_method_windows(app_state, latest_results):
@@ -347,14 +353,30 @@ def render_method_windows(app_state, latest_results):
             st.markdown("".join(body), unsafe_allow_html=True)
 
 
-settings = load_settings()
+def _format_snapshot_time(timestamp: float | None) -> str:
+    if timestamp is None:
+        return "-"
+    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+
+
+base_settings = load_settings()
+settings = merge_settings(base_settings, st.session_state.get("active_settings_payload"))
 missing = missing_required_settings(settings)
+init_db()
+app_state = get_app_state()
+latest_results = st.session_state.get("latest_results", [])
 
 st.title("Chat History Compression Demo")
 st.caption("Compare 5 prompt-construction methods on the same user turns, with token, latency, summary, compression, and RAG context.")
 
 with st.sidebar:
     st.header("Config")
+    current_snapshot_id = st.session_state.get("current_snapshot_id")
+    current_snapshot_saved_at = st.session_state.get("current_snapshot_saved_at")
+    if current_snapshot_id is not None:
+        st.caption(
+            f"Loaded snapshot id={current_snapshot_id} saved at {_format_snapshot_time(current_snapshot_saved_at)}"
+        )
     st.write(f"Seed: `{settings.chat_seed}`")
     st.caption("Fixed seed helps reduce variation, but identical outputs are still best-effort rather than guaranteed.")
     st.write(f"Summary retrieval mode: `{settings.summary_retrieval_mode}`")
@@ -362,9 +384,35 @@ with st.sidebar:
     st.write(f"RAG top-k: `{settings.rag_top_k}`")
     st.write(f"Summary top-k: `{settings.summary_top_k}`")
     st.write(f"LLMLingua rate: `{settings.llmlingua_rate}`")
-    if st.button("Reset Conversation", use_container_width=True):
+    if st.button("Reset Conversation", width="stretch"):
         reset_state()
         st.rerun()
+
+    st.header("Snapshot DB")
+    if st.button("Save Current Snapshot", width="stretch"):
+        snapshot_id = save_snapshot(app_state, latest_results, settings)
+        st.session_state.last_saved_snapshot_id = snapshot_id
+    last_saved_snapshot_id = st.session_state.get("last_saved_snapshot_id")
+    if last_saved_snapshot_id is not None:
+        st.success(f"Saved snapshot id={last_saved_snapshot_id}")
+
+    snapshot_id_input = st.number_input(
+        "Conversation ID",
+        min_value=1,
+        step=1,
+        value=int(st.session_state.get("current_snapshot_id") or 1),
+    )
+    if st.button("Load Snapshot By ID", width="stretch"):
+        try:
+            snapshot = load_snapshot(int(snapshot_id_input))
+            st.session_state.app_state = snapshot.app_state
+            st.session_state.latest_results = snapshot.latest_results
+            st.session_state.active_settings_payload = snapshot.settings_payload
+            st.session_state.current_snapshot_id = snapshot.snapshot_id
+            st.session_state.current_snapshot_saved_at = snapshot.saved_at
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Snapshot load failed: {exc}")
 
     st.header("Upload Documents")
     uploaded_files = st.file_uploader(
@@ -379,8 +427,6 @@ with st.sidebar:
         type=["json"],
         accept_multiple_files=False,
     )
-
-app_state = get_app_state()
 
 if missing:
     st.error("Missing required environment variables: " + ", ".join(missing))
@@ -402,6 +448,8 @@ if conversation_file is not None:
                 embedding_client,
             )
             st.session_state.last_conversation_import_key = conversation_file_key
+            st.session_state.current_snapshot_id = None
+            st.session_state.current_snapshot_saved_at = None
             message = f"Imported {imported_count} turns into all 5 methods."
             if estimated_turns:
                 message += f" Backfilled estimated token charts for {estimated_turns} imported turns."
@@ -433,6 +481,8 @@ if chat_input:
         try:
             latest_results = run_all_methods(app_state, chat_input, settings, azure_client, embedding_client)
             st.session_state.latest_results = latest_results
+            st.session_state.current_snapshot_id = None
+            st.session_state.current_snapshot_saved_at = None
         except Exception as exc:
             st.exception(exc)
 
@@ -475,17 +525,35 @@ with charts_tab:
             chart = line_chart(df, column, title)
             if chart is not None:
                 with chart_cols[index % 2]:
-                    st.plotly_chart(chart, use_container_width=True)
+                    st.plotly_chart(chart, width="stretch")
         with st.expander("Metrics Table", expanded=False):
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, width="stretch")
 
 with debug_tab:
     st.write("Method summaries")
+    latest_by_method = {result.method_key: result for result in latest_results}
     for method_key, state in app_state.method_states.items():
         with st.expander(METHOD_LABELS[method_key], expanded=False):
             st.write(f"Turns: {len(state.turns)}")
             st.write(f"Summaries: {len(state.summaries)}")
             st.write(f"Pending summary jobs: {len(state.pending_summary_blocks)}")
+            latest_result = latest_by_method.get(method_key)
+            if latest_result is not None:
+                artifacts = latest_result.prompt_artifacts
+                st.write("Latest prompt debug")
+                st.json(
+                    {
+                        "compression_attempted": artifacts.compression_attempted,
+                        "compression_applied": artifacts.compression_applied,
+                        "compression_error": artifacts.compression_error,
+                        "context_chars": len(artifacts.context_text),
+                        "compressed_chars": (len(artifacts.compressed_context) if artifacts.compressed_context is not None else None),
+                        "estimated_input_tokens": artifacts.estimated_input_tokens,
+                        "compressed_input_tokens": artifacts.compressed_input_tokens,
+                        "rag_chunks": len(artifacts.rag_chunks),
+                        "retrieved_summaries": len(artifacts.retrieved_summaries),
+                    }
+                )
             for summary in state.summaries:
                 st.code(
                     f"Block {summary.block_index + 1} turns {summary.start_turn}-{summary.end_turn}\n{summary.text}"

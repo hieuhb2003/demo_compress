@@ -17,6 +17,12 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+## Snapshot DB
+
+- Use `Save Current Snapshot` in the sidebar to persist the current 5-method conversation state into SQLite.
+- The app stores snapshots in `data/conversation_snapshots.db`.
+- Enter a saved numeric `Conversation ID` and click `Load Snapshot By ID` to restore all 5 method windows, metrics, summaries, RAG chunks, and saved parameters.
+
 ## Notes
 
 - `1 turn = 1 user message + 1 assistant message`

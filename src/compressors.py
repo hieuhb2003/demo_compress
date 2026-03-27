@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from threading import Lock
+
+
+LLMLINGUA_LOCK = Lock()
 
 
 @lru_cache(maxsize=1)
@@ -13,20 +17,22 @@ def _build_llmlingua():
     )
 
 
-def compress_history_context(text: str, rate: float) -> tuple[str, bool]:
+def compress_history_context(text: str, rate: float) -> tuple[str, bool, str | None]:
     if not text.strip():
-        return text, False
+        return text, False, None
     try:
-        compressor = _build_llmlingua()
-        result = compressor.compress_prompt(
-            text,
-            rate=rate,
-            force_tokens=["\n", "[", "]"],
-        )
+        with LLMLINGUA_LOCK:
+            compressor = _build_llmlingua()
+            result = compressor.compress_prompt(
+                text,
+                rate=rate,
+                force_tokens=["\n", "[", "]"],
+            )
         if isinstance(result, dict):
             compressed = result.get("compressed_prompt", text)
         else:
             compressed = result
-        return compressed, True
-    except Exception:
-        return text, False
+        applied = not (compressed == text)
+        return compressed, applied, None
+    except Exception as exc:
+        return text, False, f"{type(exc).__name__}: {exc}"

@@ -77,18 +77,20 @@ def prepare_prompt(
     settings: Settings,
     azure_client: AzureAIClient,
     embedding_client: LocalEmbeddingClient,
+    query_embedding: list[float] | None = None,
+    precomputed_rag_chunks: list[DocumentChunk] | None = None,
 ) -> PromptArtifacts:
     needs_summaries = method_key != "full_history"
     if needs_summaries:
         harvest_completed_summaries(state)
         ensure_summary_jobs(state, azure_client)
 
-    query_embedding = None
-    if settings.summary_retrieval_mode == "embedding":
+    effective_query_embedding = query_embedding
+    if effective_query_embedding is None and settings.summary_retrieval_mode == "embedding":
         try:
-            query_embedding = embedding_client.embed(user_message)
+            effective_query_embedding = embedding_client.embed(user_message)
         except Exception:
-            query_embedding = None
+            effective_query_embedding = None
 
     if needs_summaries:
         required_block = require_summary_for_turn_count(state, len(state.turns))
@@ -100,13 +102,15 @@ def prepare_prompt(
             if summary.embedding is None and settings.summary_retrieval_mode == "embedding":
                 maybe_embed_summary(summary, embedding_client)
 
-    rag_chunks = retrieve_document_chunks(
-        user_message,
-        app_rag_chunks,
-        top_k=settings.rag_top_k,
-        mode=settings.summary_retrieval_mode,
-        query_embedding=query_embedding,
-    )
+    rag_chunks = precomputed_rag_chunks
+    if rag_chunks is None:
+        rag_chunks = retrieve_document_chunks(
+            user_message,
+            app_rag_chunks,
+            top_k=settings.rag_top_k,
+            mode=settings.summary_retrieval_mode,
+            query_embedding=effective_query_embedding,
+        )
 
     if method_key == "full_history":
         context_text = _attach_rag_context(_render_turns(state.turns), rag_chunks)
@@ -129,7 +133,7 @@ def prepare_prompt(
             older_summaries,
             top_k=settings.summary_top_k,
             mode=settings.summary_retrieval_mode,
-            query_embedding=query_embedding,
+            query_embedding=effective_query_embedding,
         )
         parts = []
         if latest_summary:
@@ -145,10 +149,17 @@ def prepare_prompt(
         raise ValueError(f"Unsupported method: {method_key}")
 
     compressed_context = None
+    compression_attempted = False
+    compression_applied = False
+    compression_error = None
     compressible = method_key in {"summary_window_llmlingua", "summary_retrieval_llmlingua"}
     effective_context = context_text
     if compressible and context_text.strip():
-        compressed_context, _ = compress_history_context(context_text, settings.llmlingua_rate)
+        compression_attempted = True
+        compressed_context, compression_applied, compression_error = compress_history_context(
+            context_text,
+            settings.llmlingua_rate,
+        )
         effective_context = compressed_context or context_text
 
     messages = _build_messages(SYSTEM_PROMPT, effective_context, user_message)
@@ -164,6 +175,9 @@ def prepare_prompt(
         compressed_context=compressed_context,
         estimated_input_tokens=count_message_tokens(messages),
         compressed_input_tokens=count_tokens(effective_context) if compressed_context is not None else None,
+        compression_attempted=compression_attempted,
+        compression_applied=compression_applied,
+        compression_error=compression_error,
     )
 
 
