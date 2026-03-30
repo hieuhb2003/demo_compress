@@ -430,16 +430,35 @@ def render_judge_tab(app_state, settings):
     score_df = pd.DataFrame(score_records)
 
     # Average scores per method
-    st.subheader("Average Score by Method")
+    st.subheader("Score vs Latency by Method")
+    import plotly.express as px
+
     avg_df = score_df.groupby("Method", as_index=False)["Score"].mean().sort_values("Score", ascending=False)
     avg_df["Score"] = avg_df["Score"].round(2)
-    st.dataframe(avg_df, hide_index=True, use_container_width=True)
 
-    # Bar chart
-    import plotly.express as px
-    fig = px.bar(avg_df, x="Method", y="Score", color="Method", title="Average Judge Score by Method")
-    fig.update_yaxes(range=[0, 10])
-    st.plotly_chart(fig, use_container_width=True)
+    # Build avg latency per method from metrics
+    latency_records = []
+    for method_key, state in app_state.method_states.items():
+        label = METHOD_LABELS.get(method_key, method_key)
+        if state.metrics_history:
+            avg_lat = sum(m.latency_seconds for m in state.metrics_history) / len(state.metrics_history)
+        else:
+            avg_lat = 0
+        latency_records.append({"Method": label, "Avg Latency (s)": round(avg_lat, 2)})
+    latency_df = pd.DataFrame(latency_records)
+
+    col_score, col_latency = st.columns(2)
+    with col_score:
+        fig_score = px.bar(avg_df, x="Method", y="Score", color="Method", title="Avg Judge Score (Accuracy)")
+        fig_score.update_yaxes(range=[0, 10])
+        fig_score.update_layout(showlegend=False, xaxis_tickangle=-25)
+        st.plotly_chart(fig_score, use_container_width=True)
+    with col_latency:
+        fig_lat = px.bar(latency_df, x="Method", y="Avg Latency (s)", color="Method", title="Avg Latency per Turn (s)")
+        fig_lat.update_layout(showlegend=False, xaxis_tickangle=-25)
+        st.plotly_chart(fig_lat, use_container_width=True)
+
+    st.dataframe(avg_df.merge(latency_df, on="Method"), hide_index=True, use_container_width=True)
 
     # Score heatmap: turn x method
     st.subheader("Score per Turn")
@@ -659,6 +678,25 @@ with charts_tab:
         top_row[1].metric("Cumul. Avg Prompt", f"{latest_df['cumulative_input_tokens'].mean():.0f}")
         top_row[2].metric("Cumul. Avg Total", f"{latest_df['cumulative_total_tokens'].mean():.0f}")
         top_row[3].metric("Latest Avg Latency", f"{latest_df['latency_seconds'].mean():.2f}s")
+
+        st.subheader("Summary by Method")
+        summary_records = []
+        for method_name in df["method"].unique():
+            mdf = df[df["method"] == method_name]
+            summary_records.append({
+                "Method": method_name,
+                "Turns": len(mdf),
+                "Total Prompt Tokens": int(mdf["actual_input_tokens"].sum()),
+                "Total Output Tokens": int(mdf["actual_output_tokens"].sum()),
+                "Total Tokens": int(mdf["total_tokens"].sum()),
+                "Avg Prompt/Turn": int(mdf["actual_input_tokens"].mean()),
+                "Avg Output/Turn": int(mdf["actual_output_tokens"].mean()),
+                "Avg Latency (s)": round(mdf["latency_seconds"].mean(), 2),
+                "Avg Compress Ratio": round(mdf["compression_ratio"].mean(), 2),
+                "Avg Prep (s)": round(mdf["prep_time"].mean(), 2),
+            })
+        summary_df = pd.DataFrame(summary_records)
+        st.dataframe(summary_df, hide_index=True, use_container_width=True)
 
         st.subheader("Cumulative Token Usage")
         chart_cols_cum = st.columns(2)

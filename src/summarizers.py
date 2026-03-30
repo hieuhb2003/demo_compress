@@ -26,13 +26,16 @@ def _generate_summary(
     turns: list[ChatTurn],
 ) -> SummaryRecord:
     prompt = (
-        "Summarize these conversation turns as briefly as possible while preserving all key information: "
-        "commitments, entities, constraints, preferences, unresolved questions, and facts needed for future turns. "
-        "Use bullet points. Be extremely concise.\n\n"
+        "Summarize these conversation turns into concise bullet points. Rules:\n"
+        "- Maximum 1 bullet per turn, merge related turns\n"
+        "- Each bullet: one short sentence with exact values (e.g. d_model=512, BLEU=28.4)\n"
+        "- Keep numbers, formulas, dimensions as-is — never paraphrase them\n"
+        "- Drop greetings, filler, repeated explanations\n"
+        "- Only keep facts that a future question might need\n\n"
         f"{_turns_to_text(turns)}"
     )
     messages = [
-        {"role": "system", "content": "You summarize chat history for future retrieval. Be concise."},
+        {"role": "system", "content": "You summarize chat history for future retrieval. Preserve exact technical details."},
         {"role": "user", "content": prompt},
     ]
     text, _, _ = openai_client.chat_completion(messages)
