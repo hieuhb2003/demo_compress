@@ -15,7 +15,7 @@ from src.config import load_settings, missing_required_settings
 from src.judge import load_judge_references, run_judge
 from src.local_embeddings import OpenAIEmbeddingClient
 from src.models import ChatTurn, MethodMetrics
-from src.persistence import init_db, load_snapshot, merge_settings, save_snapshot
+from src.persistence import delete_snapshot, init_db, list_snapshots, load_snapshot, merge_settings, save_snapshot, update_snapshot
 from src.prompt_builders import prepare_prompt
 from src.rag import chunk_text, extract_text_from_upload
 from src.runtime import METHOD_LABELS, build_initial_state, run_all_methods
@@ -433,8 +433,11 @@ def render_judge_tab(app_state, settings):
     st.subheader("Score vs Latency by Method")
     import plotly.express as px
 
-    avg_df = score_df.groupby("Method", as_index=False)["Score"].mean().sort_values("Score", ascending=False)
+    method_order = list(METHOD_LABELS.values())
+    avg_df = score_df.groupby("Method", as_index=False)["Score"].mean()
     avg_df["Score"] = avg_df["Score"].round(2)
+    avg_df["Method"] = pd.Categorical(avg_df["Method"], categories=method_order, ordered=True)
+    avg_df = avg_df.sort_values("Method")
 
     # Build avg latency per method from metrics
     latency_records = []
@@ -451,24 +454,42 @@ def render_judge_tab(app_state, settings):
     with col_score:
         fig_score = px.bar(avg_df, x="Method", y="Score", color="Method", title="Avg Judge Score (Accuracy)")
         fig_score.update_yaxes(range=[0, 10])
+        fig_score.update_xaxes(categoryorder="array", categoryarray=method_order)
         fig_score.update_layout(showlegend=False, xaxis_tickangle=-25)
         st.plotly_chart(fig_score, use_container_width=True)
     with col_latency:
         fig_lat = px.bar(latency_df, x="Method", y="Avg Latency (s)", color="Method", title="Avg Latency per Turn (s)")
+        fig_lat.update_xaxes(categoryorder="array", categoryarray=method_order)
         fig_lat.update_layout(showlegend=False, xaxis_tickangle=-25)
         st.plotly_chart(fig_lat, use_container_width=True)
 
     st.dataframe(avg_df.merge(latency_df, on="Method"), hide_index=True, use_container_width=True)
 
-    # Score heatmap: turn x method
-    st.subheader("Score per Turn")
-    pivot_df = score_df.pivot_table(index="Turn", columns="Method", values="Score")
-    st.dataframe(pivot_df.style.background_gradient(cmap="RdYlGn", vmin=1, vmax=10), use_container_width=True)
+    # Comparison vs Full History
+    st.subheader("Comparison vs Full History")
+    full_history_label = METHOD_LABELS["full_history"]
+    full_state = app_state.method_states.get("full_history")
+    full_total_prompt = sum(m.actual_input_tokens for m in full_state.metrics_history) if full_state else 0
+    full_avg_score = avg_df.loc[avg_df["Method"] == full_history_label, "Score"]
+    full_score = float(full_avg_score.iloc[0]) if not full_avg_score.empty else 0
 
-    # Line chart: scores over turns
-    fig2 = px.line(score_df, x="Turn", y="Score", color="Method", markers=True, title="Judge Score per Turn")
-    fig2.update_yaxes(range=[0, 10])
-    st.plotly_chart(fig2, use_container_width=True)
+    comparison_records = []
+    for method_key, state in app_state.method_states.items():
+        label = METHOD_LABELS.get(method_key, method_key)
+        total_prompt = sum(m.actual_input_tokens for m in state.metrics_history)
+        method_avg_score = avg_df.loc[avg_df["Method"] == label, "Score"]
+        method_score = float(method_avg_score.iloc[0]) if not method_avg_score.empty else 0
+        prompt_pct = (total_prompt / full_total_prompt * 100) if full_total_prompt > 0 else 100
+        score_pct = (method_score / full_score * 100) if full_score > 0 else 100
+        comparison_records.append({
+            "Method": label,
+            "Total Prompt Tokens": total_prompt,
+            "Prompt vs Full (%)": round(prompt_pct, 1),
+            "Avg Score": method_score,
+            "Score vs Full (%)": round(score_pct, 1),
+        })
+    comparison_df = pd.DataFrame(comparison_records)
+    st.dataframe(comparison_df, hide_index=True, use_container_width=True)
 
     # Full details
     with st.expander("Detailed Judge Reasoning", expanded=False):
@@ -518,30 +539,55 @@ with st.sidebar:
         st.rerun()
 
     st.header("Snapshot DB")
+    snapshot_name = st.text_input("Snapshot name", placeholder="e.g. baseline-16turns")
     if st.button("Save Current Snapshot", use_container_width=True):
-        snapshot_id = save_snapshot(app_state, latest_results, settings)
+        snapshot_id = save_snapshot(app_state, latest_results, settings, name=snapshot_name)
         st.session_state.last_saved_snapshot_id = snapshot_id
+        st.rerun()
     last_saved_snapshot_id = st.session_state.get("last_saved_snapshot_id")
     if last_saved_snapshot_id is not None:
         st.success(f"Saved snapshot id={last_saved_snapshot_id}")
 
-    snapshot_id_input = st.number_input(
-        "Conversation ID",
-        min_value=1,
-        step=1,
-        value=int(st.session_state.get("current_snapshot_id") or 1),
-    )
-    if st.button("Load Snapshot By ID", use_container_width=True):
-        try:
-            snapshot = load_snapshot(int(snapshot_id_input))
-            st.session_state.app_state = snapshot.app_state
-            st.session_state.latest_results = snapshot.latest_results
-            st.session_state.active_settings_payload = snapshot.settings_payload
-            st.session_state.current_snapshot_id = snapshot.snapshot_id
-            st.session_state.current_snapshot_saved_at = snapshot.saved_at
-            st.rerun()
-        except Exception as exc:
-            st.error(f"Snapshot load failed: {exc}")
+    existing_snapshots = list_snapshots()
+    if existing_snapshots:
+        snapshot_options = {
+            f"#{s.snapshot_id} — {s.name or '(no name)'} ({_format_snapshot_time(s.saved_at)})": s.snapshot_id
+            for s in existing_snapshots
+        }
+        selected_label = st.selectbox("Select snapshot", options=list(snapshot_options.keys()))
+        selected_id = snapshot_options[selected_label]
+
+        col_load, col_update, col_delete = st.columns(3)
+        with col_load:
+            if st.button("Load", use_container_width=True):
+                try:
+                    snapshot = load_snapshot(selected_id)
+                    st.session_state.app_state = snapshot.app_state
+                    st.session_state.latest_results = snapshot.latest_results
+                    st.session_state.active_settings_payload = snapshot.settings_payload
+                    st.session_state.current_snapshot_id = snapshot.snapshot_id
+                    st.session_state.current_snapshot_saved_at = snapshot.saved_at
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Snapshot load failed: {exc}")
+        with col_update:
+            if st.button("Update", use_container_width=True):
+                try:
+                    update_snapshot(selected_id, app_state, latest_results, settings, name=snapshot_name or None)
+                    st.session_state.current_snapshot_id = selected_id
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Snapshot update failed: {exc}")
+        with col_delete:
+            if st.button("Delete", use_container_width=True, type="secondary"):
+                delete_snapshot(selected_id)
+                if st.session_state.get("current_snapshot_id") == selected_id:
+                    st.session_state.pop("current_snapshot_id", None)
+                    st.session_state.pop("current_snapshot_saved_at", None)
+                st.session_state.pop("last_saved_snapshot_id", None)
+                st.rerun()
+    else:
+        st.caption("No snapshots saved yet.")
 
     st.header("Upload Documents")
     uploaded_files = st.file_uploader(
@@ -711,20 +757,6 @@ with charts_tab:
                 with chart_cols_cum[index % 2]:
                     st.plotly_chart(chart, use_container_width=True)
 
-        st.subheader("Per-Turn Metrics")
-        chart_cols = st.columns(2)
-        chart_specs = [
-            ("actual_input_tokens", "Prompt Tokens Per Turn"),
-            ("actual_output_tokens", "Completion Tokens Per Turn"),
-            ("total_tokens", "Total Tokens Per Turn"),
-            ("latency_seconds", "Latency Per Turn"),
-            ("compression_ratio", "Compression Ratio Per Turn"),
-        ]
-        for index, (column, title) in enumerate(chart_specs):
-            chart = line_chart(df, column, title)
-            if chart is not None:
-                with chart_cols[index % 2]:
-                    st.plotly_chart(chart, use_container_width=True)
         with st.expander("Metrics Table", expanded=False):
             st.dataframe(df, use_container_width=True)
 

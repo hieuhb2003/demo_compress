@@ -31,6 +31,14 @@ class SnapshotBundle:
     settings_payload: dict
     app_state: AppState
     latest_results: list[MethodResult]
+    name: str = ""
+
+
+@dataclass
+class SnapshotInfo:
+    snapshot_id: int
+    saved_at: float
+    name: str
 
 
 def init_db(db_path: Path = DB_PATH) -> None:
@@ -41,12 +49,18 @@ def init_db(db_path: Path = DB_PATH) -> None:
             CREATE TABLE IF NOT EXISTS conversation_snapshots (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 saved_at REAL NOT NULL,
+                name TEXT NOT NULL DEFAULT '',
                 settings_json TEXT NOT NULL,
                 app_state_json TEXT NOT NULL,
                 latest_results_json TEXT NOT NULL
             )
             """
         )
+        # Migration: add name column if missing (existing DBs)
+        cursor = conn.execute("PRAGMA table_info(conversation_snapshots)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if "name" not in columns:
+            conn.execute("ALTER TABLE conversation_snapshots ADD COLUMN name TEXT NOT NULL DEFAULT ''")
         conn.commit()
 
 
@@ -79,6 +93,7 @@ def save_snapshot(
     app_state: AppState,
     latest_results: list[MethodResult],
     settings: Settings,
+    name: str = "",
     db_path: Path = DB_PATH,
 ) -> int:
     init_db(db_path)
@@ -88,13 +103,15 @@ def save_snapshot(
             """
             INSERT INTO conversation_snapshots (
                 saved_at,
+                name,
                 settings_json,
                 app_state_json,
                 latest_results_json
-            ) VALUES (?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?)
             """,
             (
                 saved_at,
+                name.strip(),
                 json.dumps(settings_to_payload(settings)),
                 json.dumps(_serialize_app_state(app_state)),
                 json.dumps(_serialize_method_results(latest_results)),
@@ -109,7 +126,7 @@ def load_snapshot(snapshot_id: int, db_path: Path = DB_PATH) -> SnapshotBundle:
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
             """
-            SELECT id, saved_at, settings_json, app_state_json, latest_results_json
+            SELECT id, saved_at, name, settings_json, app_state_json, latest_results_json
             FROM conversation_snapshots
             WHERE id = ?
             """,
@@ -118,7 +135,7 @@ def load_snapshot(snapshot_id: int, db_path: Path = DB_PATH) -> SnapshotBundle:
     if row is None:
         raise ValueError(f"Snapshot id={snapshot_id} was not found.")
 
-    _, saved_at, settings_json, app_state_json, latest_results_json = row
+    _, saved_at, name, settings_json, app_state_json, latest_results_json = row
     settings_payload = json.loads(settings_json)
     return SnapshotBundle(
         snapshot_id=int(snapshot_id),
@@ -126,7 +143,57 @@ def load_snapshot(snapshot_id: int, db_path: Path = DB_PATH) -> SnapshotBundle:
         settings_payload=settings_payload,
         app_state=_deserialize_app_state(json.loads(app_state_json)),
         latest_results=_deserialize_method_results(json.loads(latest_results_json)),
+        name=name or "",
     )
+
+
+def list_snapshots(db_path: Path = DB_PATH) -> list[SnapshotInfo]:
+    init_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT id, saved_at, name FROM conversation_snapshots ORDER BY id DESC"
+        ).fetchall()
+    return [SnapshotInfo(snapshot_id=r[0], saved_at=r[1], name=r[2] or "") for r in rows]
+
+
+def update_snapshot(
+    snapshot_id: int,
+    app_state: AppState,
+    latest_results: list[MethodResult],
+    settings: Settings,
+    name: str | None = None,
+    db_path: Path = DB_PATH,
+) -> None:
+    init_db(db_path)
+    saved_at = time.time()
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("SELECT id, name FROM conversation_snapshots WHERE id = ?", (snapshot_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"Snapshot id={snapshot_id} was not found.")
+        final_name = name.strip() if name is not None else row[1]
+        conn.execute(
+            """
+            UPDATE conversation_snapshots
+            SET saved_at = ?, name = ?, settings_json = ?, app_state_json = ?, latest_results_json = ?
+            WHERE id = ?
+            """,
+            (
+                saved_at,
+                final_name,
+                json.dumps(settings_to_payload(settings)),
+                json.dumps(_serialize_app_state(app_state)),
+                json.dumps(_serialize_method_results(latest_results)),
+                snapshot_id,
+            ),
+        )
+        conn.commit()
+
+
+def delete_snapshot(snapshot_id: int, db_path: Path = DB_PATH) -> None:
+    init_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("DELETE FROM conversation_snapshots WHERE id = ?", (snapshot_id,))
+        conn.commit()
 
 
 # ── Serialization ──────────────────────────────────────────────
