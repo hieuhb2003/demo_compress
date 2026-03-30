@@ -463,33 +463,31 @@ def render_judge_tab(app_state, settings):
         fig_lat.update_layout(showlegend=False, xaxis_tickangle=-25)
         st.plotly_chart(fig_lat, use_container_width=True)
 
-    st.dataframe(avg_df.merge(latency_df, on="Method"), hide_index=True, use_container_width=True)
-
-    # Comparison vs Full History
-    st.subheader("Comparison vs Full History")
-    full_history_label = METHOD_LABELS["full_history"]
+    # Combined summary table
+    st.subheader("Summary")
     full_state = app_state.method_states.get("full_history")
     full_total_prompt = sum(m.actual_input_tokens for m in full_state.metrics_history) if full_state else 0
-    full_avg_score = avg_df.loc[avg_df["Method"] == full_history_label, "Score"]
-    full_score = float(full_avg_score.iloc[0]) if not full_avg_score.empty else 0
 
-    comparison_records = []
+    combined_records = []
     for method_key, state in app_state.method_states.items():
         label = METHOD_LABELS.get(method_key, method_key)
         total_prompt = sum(m.actual_input_tokens for m in state.metrics_history)
-        method_avg_score = avg_df.loc[avg_df["Method"] == label, "Score"]
-        method_score = float(method_avg_score.iloc[0]) if not method_avg_score.empty else 0
         prompt_pct = (total_prompt / full_total_prompt * 100) if full_total_prompt > 0 else 100
-        score_pct = (method_score / full_score * 100) if full_score > 0 else 100
-        comparison_records.append({
+        avg_lat = (
+            round(sum(m.latency_seconds for m in state.metrics_history) / len(state.metrics_history), 2)
+            if state.metrics_history else 0
+        )
+        method_avg_score = avg_df.loc[avg_df["Method"] == label, "Score"]
+        score = float(method_avg_score.iloc[0]) if not method_avg_score.empty else 0
+        combined_records.append({
             "Method": label,
             "Total Prompt Tokens": total_prompt,
             "Prompt vs Full (%)": round(prompt_pct, 1),
-            "Avg Score": method_score,
-            "Score vs Full (%)": round(score_pct, 1),
+            "Avg Score": score,
+            "Avg Latency (s)": avg_lat,
         })
-    comparison_df = pd.DataFrame(comparison_records)
-    st.dataframe(comparison_df, hide_index=True, use_container_width=True)
+    combined_df = pd.DataFrame(combined_records)
+    st.dataframe(combined_df, hide_index=True, use_container_width=True)
 
     # Full details
     with st.expander("Detailed Judge Reasoning", expanded=False):

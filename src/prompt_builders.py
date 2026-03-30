@@ -113,7 +113,7 @@ def prepare_prompt(
         )
 
     if method_key == "full_history":
-        context_text = _attach_rag_context(_render_turns(state.turns), rag_chunks)
+        history_text = _render_turns(state.turns)
         retrieved_summaries: list[SummaryRecord] = []
     elif method_key in {"summary_window", "summary_window_llmlingua"}:
         last_summary_turn = state.summaries[-1].end_turn if state.summaries else 0
@@ -123,7 +123,7 @@ def prepare_prompt(
         remaining_turns = [turn for turn in state.turns if turn.turn_index > last_summary_turn]
         if remaining_turns:
             context_parts.append(_render_turns(remaining_turns))
-        context_text = _attach_rag_context("\n\n".join(part for part in context_parts if part), rag_chunks)
+        history_text = "\n\n".join(part for part in context_parts if part)
         retrieved_summaries = []
     elif method_key in {"summary_retrieval", "summary_retrieval_llmlingua"}:
         latest_summary = state.summaries[-1:] if state.summaries else []
@@ -144,23 +144,30 @@ def prepare_prompt(
         remaining_turns = [turn for turn in state.turns if turn.turn_index > last_summary_turn]
         if remaining_turns:
             parts.append(_render_turns(remaining_turns))
-        context_text = _attach_rag_context("\n\n".join(part for part in parts if part), rag_chunks)
+        history_text = "\n\n".join(part for part in parts if part)
     else:
         raise ValueError(f"Unsupported method: {method_key}")
 
+    # Compress only history/summary text, not RAG
     compressed_context = None
     compression_attempted = False
     compression_applied = False
     compression_error = None
     compressible = method_key in {"summary_window_llmlingua", "summary_retrieval_llmlingua"}
-    effective_context = context_text
-    if compressible and context_text.strip():
+    effective_history = history_text
+    if compressible and history_text.strip():
         compression_attempted = True
         compressed_context, compression_applied, compression_error = compress_history_context(
-            context_text,
+            history_text,
             settings.llmlingua_rate,
         )
-        effective_context = compressed_context or context_text
+        effective_history = compressed_context or history_text
+
+    # Attach RAG after compression
+    context_text = _attach_rag_context(history_text, rag_chunks)
+    effective_context = _attach_rag_context(effective_history, rag_chunks)
+    # Store full effective context (compressed history + raw RAG) so build_messages_from_artifacts works correctly
+    full_compressed_context = effective_context if compressed_context is not None else None
 
     messages = _build_messages(SYSTEM_PROMPT, effective_context, user_message)
     raw_messages = _build_messages(SYSTEM_PROMPT, context_text, user_message)
@@ -172,7 +179,7 @@ def prepare_prompt(
         rag_chunks=rag_chunks,
         retrieved_summaries=retrieved_summaries,
         raw_prompt_preview=raw_messages[1]["content"],
-        compressed_context=compressed_context,
+        compressed_context=full_compressed_context,
         estimated_input_tokens=count_message_tokens(messages),
         compressed_input_tokens=count_tokens(effective_context) if compressed_context is not None else None,
         compression_attempted=compression_attempted,
