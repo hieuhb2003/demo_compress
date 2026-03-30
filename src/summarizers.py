@@ -3,11 +3,12 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
-from src.azure_client import AzureAIClient
-from src.local_embeddings import LocalEmbeddingClient
+from src.openai_client import OpenAIClient
+from src.local_embeddings import OpenAIEmbeddingClient
 from src.models import ChatTurn, ConversationState, SummaryRecord
 
 
+SUMMARY_BLOCK_SIZE = 6
 SUMMARY_EXECUTOR = ThreadPoolExecutor(max_workers=4)
 
 
@@ -20,20 +21,21 @@ def _turns_to_text(turns: list[ChatTurn]) -> str:
 
 
 def _generate_summary(
-    azure_client: AzureAIClient,
+    openai_client: OpenAIClient,
     block_index: int,
     turns: list[ChatTurn],
 ) -> SummaryRecord:
     prompt = (
-        "Summarize the following conversation turns in a concise but precise way. "
-        "Preserve commitments, entities, constraints, preferences, unresolved questions, and any facts that future turns may need.\n\n"
+        "Summarize these conversation turns as briefly as possible while preserving all key information: "
+        "commitments, entities, constraints, preferences, unresolved questions, and facts needed for future turns. "
+        "Use bullet points. Be extremely concise.\n\n"
         f"{_turns_to_text(turns)}"
     )
     messages = [
-        {"role": "system", "content": "You summarize chat history for future retrieval."},
+        {"role": "system", "content": "You summarize chat history for future retrieval. Be concise."},
         {"role": "user", "content": prompt},
     ]
-    text, _, _ = azure_client.chat_completion(messages)
+    text, _, _ = openai_client.chat_completion(messages)
     return SummaryRecord(
         block_index=block_index,
         start_turn=turns[0].turn_index,
@@ -42,17 +44,17 @@ def _generate_summary(
     )
 
 
-def ensure_summary_jobs(state: ConversationState, azure_client: AzureAIClient) -> None:
-    completed_blocks = len(state.turns) // 10
+def ensure_summary_jobs(state: ConversationState, openai_client: OpenAIClient) -> None:
+    completed_blocks = len(state.turns) // SUMMARY_BLOCK_SIZE
     for block_index in range(completed_blocks):
         already_done = any(summary.block_index == block_index for summary in state.summaries)
         already_pending = block_index in state.pending_summary_blocks
         if already_done or already_pending:
             continue
-        block_turns = state.turns[block_index * 10 : (block_index + 1) * 10]
+        block_turns = state.turns[block_index * SUMMARY_BLOCK_SIZE : (block_index + 1) * SUMMARY_BLOCK_SIZE]
         state.pending_summary_blocks[block_index] = SUMMARY_EXECUTOR.submit(
             _generate_summary,
-            azure_client,
+            openai_client,
             block_index,
             block_turns,
         )
@@ -72,9 +74,9 @@ def harvest_completed_summaries(state: ConversationState) -> None:
 
 
 def require_summary_for_turn_count(state: ConversationState, turn_count: int) -> Optional[int]:
-    completed_blocks = turn_count // 10
+    completed_blocks = turn_count // SUMMARY_BLOCK_SIZE
     for block_index in range(completed_blocks):
-        boundary_turn = (block_index + 1) * 10
+        boundary_turn = (block_index + 1) * SUMMARY_BLOCK_SIZE
         if turn_count == boundary_turn:
             continue
         has_summary = any(summary.block_index == block_index for summary in state.summaries)
@@ -94,7 +96,7 @@ def wait_for_required_summary(state: ConversationState, block_index: int) -> Non
         state.summaries.sort(key=lambda item: item.block_index)
 
 
-def maybe_embed_summary(summary: SummaryRecord, embedding_client: LocalEmbeddingClient) -> None:
+def maybe_embed_summary(summary: SummaryRecord, embedding_client: OpenAIEmbeddingClient) -> None:
     try:
         summary.embedding = embedding_client.embed(summary.text)
     except Exception:

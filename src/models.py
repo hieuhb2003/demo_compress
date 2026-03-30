@@ -55,6 +55,8 @@ class MethodMetrics:
     total_tokens: int
     latency_seconds: float
     compression_ratio: float
+    prep_time: float = 0.0
+    thread_name: str = ""
 
 
 @dataclass
@@ -77,6 +79,23 @@ class ConversationState:
 
 
 @dataclass
+class JudgeReference:
+    turn_index: int
+    question: str
+    reference_answer: str
+
+
+@dataclass
+class JudgeScore:
+    turn_index: int
+    method_key: str
+    score: float
+    reasoning: str
+
+
+@dataclass
 class AppState:
     method_states: Dict[str, ConversationState]
     rag_chunks: List[DocumentChunk] = field(default_factory=list)
+    judge_references: List[JudgeReference] = field(default_factory=list)
+    judge_scores: List[JudgeScore] = field(default_factory=list)

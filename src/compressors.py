@@ -17,6 +17,11 @@ def _build_llmlingua():
     )
 
 
+def preload_llmlingua() -> None:
+    """Preload the LLMLingua model so it's ready before first chat."""
+    _build_llmlingua()
+
+
 def compress_history_context(text: str, rate: float) -> tuple[str, bool, str | None]:
     if not text.strip():
         return text, False, None

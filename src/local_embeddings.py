@@ -1,24 +1,31 @@
 from __future__ import annotations
 
-from functools import lru_cache
 from typing import Iterable, List
 
-from sentence_transformers import SentenceTransformer
+from openai import OpenAI
 
 
-@lru_cache(maxsize=2)
-def _load_model(model_name: str) -> SentenceTransformer:
-    return SentenceTransformer(model_name)
-
-
-class LocalEmbeddingClient:
-    def __init__(self, model_name: str):
-        self.model_name = model_name
+class OpenAIEmbeddingClient:
+    def __init__(self, api_key: str, model: str = "text-embedding-3-small", base_url: str = ""):
+        kwargs = {"api_key": api_key}
+        if base_url:
+            kwargs["base_url"] = base_url
+        self.client = OpenAI(**kwargs)
+        self.model = model
 
     def embed(self, text: str) -> List[float]:
-        model = _load_model(self.model_name)
-        return model.encode(text, normalize_embeddings=True).tolist()
+        response = self.client.embeddings.create(
+            model=self.model,
+            input=text,
+        )
+        return response.data[0].embedding
 
     def embed_many(self, texts: Iterable[str]) -> list[list[float]]:
-        model = _load_model(self.model_name)
-        return model.encode(list(texts), normalize_embeddings=True).tolist()
+        text_list = list(texts)
+        if not text_list:
+            return []
+        response = self.client.embeddings.create(
+            model=self.model,
+            input=text_list,
+        )
+        return [item.embedding for item in response.data]

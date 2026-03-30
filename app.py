@@ -8,10 +8,12 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-from src.azure_client import AzureAIClient
+from src.openai_client import OpenAIClient
 from src.charts import line_chart, metrics_dataframe
+from src.compressors import preload_llmlingua
 from src.config import load_settings, missing_required_settings
-from src.local_embeddings import LocalEmbeddingClient
+from src.judge import load_judge_references, run_judge
+from src.local_embeddings import OpenAIEmbeddingClient
 from src.models import ChatTurn, MethodMetrics
 from src.persistence import init_db, load_snapshot, merge_settings, save_snapshot
 from src.prompt_builders import prepare_prompt
@@ -23,9 +25,14 @@ from src.tokenizer import count_tokens
 st.set_page_config(page_title="Prompt Compression Demo", layout="wide")
 
 
+@st.cache_resource(show_spinner="Loading LLMLingua model...")
+def _preload_llmlingua():
+    preload_llmlingua()
+
+
 @st.cache_resource(show_spinner=False)
-def get_embedding_client(model_name: str) -> LocalEmbeddingClient:
-    return LocalEmbeddingClient(model_name)
+def get_embedding_client(api_key: str, model: str, base_url: str = "") -> OpenAIEmbeddingClient:
+    return OpenAIEmbeddingClient(api_key=api_key, model=model, base_url=base_url)
 
 
 def get_app_state():
@@ -109,7 +116,7 @@ def _turns_from_messages(messages) -> list[dict[str, str]]:
     return turns
 
 
-def backfill_imported_metrics(app_state, imported_turns, settings, azure_client, embedding_client) -> int:
+def backfill_imported_metrics(app_state, imported_turns, settings, openai_client, embedding_client) -> int:
     replay_turns = imported_turns[:10]
     for state in app_state.method_states.values():
         state.turns.clear()
@@ -125,7 +132,7 @@ def backfill_imported_metrics(app_state, imported_turns, settings, azure_client,
                 turn.user_message,
                 app_state.rag_chunks,
                 settings,
-                azure_client,
+                openai_client,
                 embedding_client,
             )
             output_tokens = count_tokens(turn.assistant_message)
@@ -169,7 +176,7 @@ def backfill_imported_metrics(app_state, imported_turns, settings, azure_client,
     return len(replay_turns)
 
 
-def import_conversation_json(raw_bytes: bytes, app_state, settings, azure_client, embedding_client) -> tuple[int, int]:
+def import_conversation_json(raw_bytes: bytes, app_state, settings, openai_client, embedding_client) -> tuple[int, int]:
     payload = json.loads(raw_bytes.decode("utf-8"))
     normalized_turns = _normalize_turns(payload)
     imported_turns = [
@@ -186,7 +193,7 @@ def import_conversation_json(raw_bytes: bytes, app_state, settings, azure_client
         app_state,
         imported_turns,
         settings,
-        azure_client,
+        openai_client,
         embedding_client,
     )
 
@@ -194,23 +201,33 @@ def import_conversation_json(raw_bytes: bytes, app_state, settings, azure_client
     return len(imported_turns), estimated_turns
 
 
-def render_overview_cards(latest_results):
+def render_overview_cards(latest_results, app_state):
     if not latest_results:
         st.info("Submit a message to see outputs.")
         return
 
     cards = []
     for result in latest_results:
+        state = app_state.method_states[result.method_key]
+        cum_input = sum(m.actual_input_tokens for m in state.metrics_history)
+        cum_output = sum(m.actual_output_tokens for m in state.metrics_history)
+        cum_total = sum(m.total_tokens for m in state.metrics_history)
+        avg_latency = (
+            round(sum(m.latency_seconds for m in state.metrics_history) / len(state.metrics_history), 2)
+            if state.metrics_history
+            else 0
+        )
         cards.append(
             {
                 "Method": result.label,
-                "Turn": result.metrics.turn_index,
-                "Prompt": result.metrics.actual_input_tokens,
-                "Output": result.metrics.actual_output_tokens,
-                "Total": result.metrics.total_tokens,
-                "Latency (s)": round(result.metrics.latency_seconds, 2),
-                "Compress": round(result.metrics.compression_ratio, 2),
-                "Preview": result.assistant_message[:140].replace("\n", " "),
+                "Turns": len(state.turns),
+                "Cumul. Prompt": cum_input,
+                "Cumul. Output": cum_output,
+                "Cumul. Total": cum_total,
+                "Avg Latency (s)": avg_latency,
+                "Last Compress": round(result.metrics.compression_ratio, 2),
+                "Prep (s)": round(result.metrics.prep_time, 2),
+                "Thread": result.metrics.thread_name,
             }
         )
     st.dataframe(pd.DataFrame(cards), width="stretch", hide_index=True)
@@ -297,8 +314,8 @@ def render_method_windows(app_state, latest_results):
     panes = st.columns(5)
     for pane, (method_key, state) in zip(panes, app_state.method_states.items()):
         latest_result = latest_by_method.get(method_key)
-        prompt_tokens = latest_result.metrics.actual_input_tokens if latest_result else 0
-        total_tokens = latest_result.metrics.total_tokens if latest_result else 0
+        cum_total = sum(m.total_tokens for m in state.metrics_history)
+        cum_input = sum(m.actual_input_tokens for m in state.metrics_history)
         latency = f"{latest_result.metrics.latency_seconds:.2f}s" if latest_result else "-"
         compression = f"{latest_result.metrics.compression_ratio:.2f}" if latest_result else "-"
 
@@ -309,8 +326,8 @@ def render_method_windows(app_state, latest_results):
             '<div class="metric-grid">',
             f'<div class="metric-cell"><div class="metric-label">Turns</div><div class="metric-value">{len(state.turns)}</div></div>',
             f'<div class="metric-cell"><div class="metric-label">Summaries</div><div class="metric-value">{len(state.summaries)}</div></div>',
-            f'<div class="metric-cell"><div class="metric-label">Prompt</div><div class="metric-value">{prompt_tokens}</div></div>',
-            f'<div class="metric-cell"><div class="metric-label">Total</div><div class="metric-value">{total_tokens}</div></div>',
+            f'<div class="metric-cell"><div class="metric-label">Cumul. Prompt</div><div class="metric-value">{cum_input}</div></div>',
+            f'<div class="metric-cell"><div class="metric-label">Cumul. Total</div><div class="metric-value">{cum_total}</div></div>',
             f'<div class="metric-cell"><div class="metric-label">Latency</div><div class="metric-value">{latency}</div></div>',
             f'<div class="metric-cell"><div class="metric-label">Compress</div><div class="metric-value">{compression}</div></div>',
             '</div>',
@@ -353,11 +370,99 @@ def render_method_windows(app_state, latest_results):
             st.markdown("".join(body), unsafe_allow_html=True)
 
 
+def build_responses_download(app_state) -> str:
+    """Build JSON of all method responses for download."""
+    first_state = next(iter(app_state.method_states.values()))
+    turn_count = len(first_state.turns)
+    output = []
+    for turn_idx in range(turn_count):
+        turn_data = {"turn_index": turn_idx + 1}
+        for method_key, state in app_state.method_states.items():
+            if turn_idx < len(state.turns):
+                turn = state.turns[turn_idx]
+                turn_data["question"] = turn.user_message
+                turn_data[method_key] = turn.assistant_message
+        output.append(turn_data)
+    return json.dumps(output, ensure_ascii=False, indent=2)
+
+
+def render_judge_tab(app_state, settings):
+    st.subheader("LLM Judge Evaluation")
+    st.caption(f"Judge model: `{settings.llm_judge_model}`")
+    if settings.llm_judge_base_url:
+        st.caption(f"Judge base URL: `{settings.llm_judge_base_url}`")
+
+    ref_count = len(app_state.judge_references)
+    first_state = next(iter(app_state.method_states.values()))
+    turn_count = len(first_state.turns)
+
+    st.write(f"References loaded: **{ref_count}** | Turns completed: **{turn_count}**")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Run LLM Judge", disabled=(ref_count == 0 or turn_count == 0), use_container_width=True):
+            with st.spinner(f"Judging {turn_count} turns x 5 methods..."):
+                try:
+                    scores = run_judge(app_state, settings)
+                    app_state.judge_scores = scores
+                    st.success(f"Judged {len(scores)} responses.")
+                    st.rerun()
+                except Exception as exc:
+                    st.exception(exc)
+    with col2:
+        if ref_count == 0:
+            st.warning("Upload QA References JSON in sidebar first.")
+
+    if not app_state.judge_scores:
+        st.info("No judge results yet. Load references and click 'Run LLM Judge'.")
+        return
+
+    # Build score matrix
+    score_records = []
+    for score in app_state.judge_scores:
+        label = METHOD_LABELS.get(score.method_key, score.method_key)
+        score_records.append({
+            "Turn": score.turn_index,
+            "Method": label,
+            "Score": score.score,
+            "Reasoning": score.reasoning,
+        })
+    score_df = pd.DataFrame(score_records)
+
+    # Average scores per method
+    st.subheader("Average Score by Method")
+    avg_df = score_df.groupby("Method", as_index=False)["Score"].mean().sort_values("Score", ascending=False)
+    avg_df["Score"] = avg_df["Score"].round(2)
+    st.dataframe(avg_df, hide_index=True, use_container_width=True)
+
+    # Bar chart
+    import plotly.express as px
+    fig = px.bar(avg_df, x="Method", y="Score", color="Method", title="Average Judge Score by Method")
+    fig.update_yaxes(range=[0, 10])
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Score heatmap: turn x method
+    st.subheader("Score per Turn")
+    pivot_df = score_df.pivot_table(index="Turn", columns="Method", values="Score")
+    st.dataframe(pivot_df.style.background_gradient(cmap="RdYlGn", vmin=1, vmax=10), use_container_width=True)
+
+    # Line chart: scores over turns
+    fig2 = px.line(score_df, x="Turn", y="Score", color="Method", markers=True, title="Judge Score per Turn")
+    fig2.update_yaxes(range=[0, 10])
+    st.plotly_chart(fig2, use_container_width=True)
+
+    # Full details
+    with st.expander("Detailed Judge Reasoning", expanded=False):
+        st.dataframe(score_df, hide_index=True, use_container_width=True)
+
+
 def _format_snapshot_time(timestamp: float | None) -> str:
     if timestamp is None:
         return "-"
     return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
 
+
+# ── Main App ───────────────────────────────────────────────────
 
 base_settings = load_settings()
 settings = merge_settings(base_settings, st.session_state.get("active_settings_payload"))
@@ -377,19 +482,24 @@ with st.sidebar:
         st.caption(
             f"Loaded snapshot id={current_snapshot_id} saved at {_format_snapshot_time(current_snapshot_saved_at)}"
         )
+    st.write(f"Model: `{settings.openai_model}`")
+    if settings.openai_base_url:
+        st.write(f"Base URL: `{settings.openai_base_url}`")
+    st.write(f"Embedding: `{settings.openai_embedding_model}`")
     st.write(f"Seed: `{settings.chat_seed}`")
     st.caption("Fixed seed helps reduce variation, but identical outputs are still best-effort rather than guaranteed.")
     st.write(f"Summary retrieval mode: `{settings.summary_retrieval_mode}`")
-    st.write(f"Local embedding model: `{settings.local_embedding_model}`")
+    st.write(f"Summary block size: `6 turns`")
     st.write(f"RAG top-k: `{settings.rag_top_k}`")
     st.write(f"Summary top-k: `{settings.summary_top_k}`")
     st.write(f"LLMLingua rate: `{settings.llmlingua_rate}`")
-    if st.button("Reset Conversation", width="stretch"):
+    st.write(f"Judge model: `{settings.llm_judge_model}`")
+    if st.button("Reset Conversation", use_container_width=True):
         reset_state()
         st.rerun()
 
     st.header("Snapshot DB")
-    if st.button("Save Current Snapshot", width="stretch"):
+    if st.button("Save Current Snapshot", use_container_width=True):
         snapshot_id = save_snapshot(app_state, latest_results, settings)
         st.session_state.last_saved_snapshot_id = snapshot_id
     last_saved_snapshot_id = st.session_state.get("last_saved_snapshot_id")
@@ -402,7 +512,7 @@ with st.sidebar:
         step=1,
         value=int(st.session_state.get("current_snapshot_id") or 1),
     )
-    if st.button("Load Snapshot By ID", width="stretch"):
+    if st.button("Load Snapshot By ID", use_container_width=True):
         try:
             snapshot = load_snapshot(int(snapshot_id_input))
             st.session_state.app_state = snapshot.app_state
@@ -428,12 +538,49 @@ with st.sidebar:
         accept_multiple_files=False,
     )
 
+    st.header("QA References (for Judge)")
+    qa_ref_file = st.file_uploader(
+        "Upload QA JSON with `question` & `reference_answer`",
+        type=["json"],
+        accept_multiple_files=False,
+        key="qa_ref_uploader",
+    )
+
+    st.header("Download")
+    first_state = next(iter(app_state.method_states.values()), None)
+    has_turns = first_state is not None and len(first_state.turns) > 0
+    if has_turns:
+        st.download_button(
+            "Download All Responses (JSON)",
+            data=build_responses_download(app_state),
+            file_name="method_responses.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+    else:
+        st.caption("Chat first to enable download.")
+
 if missing:
     st.error("Missing required environment variables: " + ", ".join(missing))
     st.stop()
 
-azure_client = AzureAIClient(settings)
-embedding_client = get_embedding_client(settings.local_embedding_model)
+openai_client = OpenAIClient(settings)
+embedding_client = get_embedding_client(settings.openai_api_key, settings.openai_embedding_model, settings.embedding_base_url)
+_preload_llmlingua()
+
+# Handle QA reference upload
+if qa_ref_file is not None:
+    qa_ref_key = qa_ref_file.file_id if hasattr(qa_ref_file, "file_id") else qa_ref_file.name
+    last_qa_key = st.session_state.get("last_qa_ref_import_key")
+    if qa_ref_key != last_qa_key:
+        try:
+            raw = json.loads(qa_ref_file.getvalue().decode("utf-8"))
+            refs = load_judge_references(raw)
+            app_state.judge_references = refs
+            st.session_state.last_qa_ref_import_key = qa_ref_key
+            st.sidebar.success(f"Loaded {len(refs)} QA references for judge.")
+        except Exception as exc:
+            st.sidebar.error(f"QA reference import failed: {exc}")
 
 if conversation_file is not None:
     conversation_file_key = conversation_file.file_id if hasattr(conversation_file, "file_id") else conversation_file.name
@@ -444,7 +591,7 @@ if conversation_file is not None:
                 conversation_file.getvalue(),
                 app_state,
                 settings,
-                azure_client,
+                openai_client,
                 embedding_client,
             )
             st.session_state.last_conversation_import_key = conversation_file_key
@@ -479,7 +626,7 @@ chat_input = st.chat_input("Type one message. All 5 methods will run.")
 if chat_input:
     with st.spinner("Running all methods..."):
         try:
-            latest_results = run_all_methods(app_state, chat_input, settings, azure_client, embedding_client)
+            latest_results = run_all_methods(app_state, chat_input, settings, openai_client, embedding_client)
             st.session_state.latest_results = latest_results
             st.session_state.current_snapshot_id = None
             st.session_state.current_snapshot_saved_at = None
@@ -488,12 +635,12 @@ if chat_input:
 
 latest_results = st.session_state.get("latest_results", [])
 
-overview_tab, windows_tab, charts_tab, debug_tab = st.tabs(
-    ["Overview", "5 Windows", "Charts", "Debug"]
+overview_tab, windows_tab, charts_tab, judge_tab, debug_tab = st.tabs(
+    ["Overview", "5 Windows", "Charts", "LLM Judge", "Debug"]
 )
 
 with overview_tab:
-    render_overview_cards(latest_results)
+    render_overview_cards(latest_results, app_state)
 
 with windows_tab:
     if not app_state.method_states or not any(state.turns for state in app_state.method_states.values()):
@@ -509,10 +656,24 @@ with charts_tab:
         top_row = st.columns(4)
         latest_df = df.sort_values("turn").groupby("method", as_index=False).tail(1)
         top_row[0].metric("Tracked Methods", len(latest_df))
-        top_row[1].metric("Latest Avg Prompt", f"{latest_df['actual_input_tokens'].mean():.0f}")
-        top_row[2].metric("Latest Avg Total", f"{latest_df['total_tokens'].mean():.0f}")
+        top_row[1].metric("Cumul. Avg Prompt", f"{latest_df['cumulative_input_tokens'].mean():.0f}")
+        top_row[2].metric("Cumul. Avg Total", f"{latest_df['cumulative_total_tokens'].mean():.0f}")
         top_row[3].metric("Latest Avg Latency", f"{latest_df['latency_seconds'].mean():.2f}s")
 
+        st.subheader("Cumulative Token Usage")
+        chart_cols_cum = st.columns(2)
+        cumulative_specs = [
+            ("cumulative_input_tokens", "Cumulative Prompt Tokens"),
+            ("cumulative_output_tokens", "Cumulative Completion Tokens"),
+            ("cumulative_total_tokens", "Cumulative Total Tokens"),
+        ]
+        for index, (column, title) in enumerate(cumulative_specs):
+            chart = line_chart(df, column, title)
+            if chart is not None:
+                with chart_cols_cum[index % 2]:
+                    st.plotly_chart(chart, use_container_width=True)
+
+        st.subheader("Per-Turn Metrics")
         chart_cols = st.columns(2)
         chart_specs = [
             ("actual_input_tokens", "Prompt Tokens Per Turn"),
@@ -525,9 +686,12 @@ with charts_tab:
             chart = line_chart(df, column, title)
             if chart is not None:
                 with chart_cols[index % 2]:
-                    st.plotly_chart(chart, width="stretch")
+                    st.plotly_chart(chart, use_container_width=True)
         with st.expander("Metrics Table", expanded=False):
-            st.dataframe(df, width="stretch")
+            st.dataframe(df, use_container_width=True)
+
+with judge_tab:
+    render_judge_tab(app_state, settings)
 
 with debug_tab:
     st.write("Method summaries")

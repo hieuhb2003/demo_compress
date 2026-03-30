@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import List
 
-from src.azure_client import AzureAIClient
+from src.openai_client import OpenAIClient
 from src.compressors import compress_history_context
 from src.config import Settings
-from src.local_embeddings import LocalEmbeddingClient
+from src.local_embeddings import OpenAIEmbeddingClient
 from src.models import ConversationState, DocumentChunk, PromptArtifacts, SummaryRecord
 from src.retrievers import retrieve_document_chunks, retrieve_summary_records
 from src.summarizers import (
@@ -75,15 +75,15 @@ def prepare_prompt(
     user_message: str,
     app_rag_chunks: list[DocumentChunk],
     settings: Settings,
-    azure_client: AzureAIClient,
-    embedding_client: LocalEmbeddingClient,
+    openai_client: OpenAIClient,
+    embedding_client: OpenAIEmbeddingClient,
     query_embedding: list[float] | None = None,
     precomputed_rag_chunks: list[DocumentChunk] | None = None,
 ) -> PromptArtifacts:
     needs_summaries = method_key != "full_history"
     if needs_summaries:
         harvest_completed_summaries(state)
-        ensure_summary_jobs(state, azure_client)
+        ensure_summary_jobs(state, openai_client)
 
     effective_query_embedding = query_embedding
     if effective_query_embedding is None and settings.summary_retrieval_mode == "embedding":

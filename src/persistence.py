@@ -12,6 +12,8 @@ from src.models import (
     ChatTurn,
     ConversationState,
     DocumentChunk,
+    JudgeReference,
+    JudgeScore,
     MethodMetrics,
     MethodResult,
     PromptArtifacts,
@@ -50,7 +52,7 @@ def init_db(db_path: Path = DB_PATH) -> None:
 
 def settings_to_payload(settings: Settings) -> dict:
     payload = asdict(settings)
-    payload.pop("azure_api_key", None)
+    payload.pop("openai_api_key", None)
     return payload
 
 
@@ -58,16 +60,18 @@ def merge_settings(base_settings: Settings, payload: dict | None) -> Settings:
     if not payload:
         return base_settings
     return Settings(
-        azure_endpoint=payload.get("azure_endpoint", base_settings.azure_endpoint),
-        azure_api_key=base_settings.azure_api_key,
-        azure_deployment=payload.get("azure_deployment", base_settings.azure_deployment),
-        azure_api_version=payload.get("azure_api_version", base_settings.azure_api_version),
-        local_embedding_model=payload.get("local_embedding_model", base_settings.local_embedding_model),
+        openai_api_key=base_settings.openai_api_key,
+        openai_base_url=payload.get("openai_base_url", base_settings.openai_base_url),
+        openai_model=payload.get("openai_model", base_settings.openai_model),
+        openai_embedding_model=payload.get("openai_embedding_model", base_settings.openai_embedding_model),
+        embedding_base_url=payload.get("embedding_base_url", base_settings.embedding_base_url),
         summary_retrieval_mode=payload.get("summary_retrieval_mode", base_settings.summary_retrieval_mode),
         rag_top_k=int(payload.get("rag_top_k", base_settings.rag_top_k)),
         summary_top_k=int(payload.get("summary_top_k", base_settings.summary_top_k)),
         llmlingua_rate=float(payload.get("llmlingua_rate", base_settings.llmlingua_rate)),
         chat_seed=int(payload.get("chat_seed", base_settings.chat_seed)),
+        llm_judge_model=payload.get("llm_judge_model", base_settings.llm_judge_model),
+        llm_judge_base_url=payload.get("llm_judge_base_url", base_settings.llm_judge_base_url),
     )
 
 
@@ -125,6 +129,8 @@ def load_snapshot(snapshot_id: int, db_path: Path = DB_PATH) -> SnapshotBundle:
     )
 
 
+# ── Serialization ──────────────────────────────────────────────
+
 def _serialize_app_state(app_state: AppState) -> dict:
     return {
         "method_states": {
@@ -132,6 +138,8 @@ def _serialize_app_state(app_state: AppState) -> dict:
             for method_key, state in app_state.method_states.items()
         },
         "rag_chunks": [_serialize_document_chunk(chunk) for chunk in app_state.rag_chunks],
+        "judge_references": [_serialize_judge_reference(ref) for ref in app_state.judge_references],
+        "judge_scores": [_serialize_judge_score(score) for score in app_state.judge_scores],
     }
 
 
@@ -183,6 +191,25 @@ def _serialize_method_metrics(metric: MethodMetrics) -> dict:
         "total_tokens": metric.total_tokens,
         "latency_seconds": metric.latency_seconds,
         "compression_ratio": metric.compression_ratio,
+        "prep_time": metric.prep_time,
+        "thread_name": metric.thread_name,
+    }
+
+
+def _serialize_judge_reference(ref: JudgeReference) -> dict:
+    return {
+        "turn_index": ref.turn_index,
+        "question": ref.question,
+        "reference_answer": ref.reference_answer,
+    }
+
+
+def _serialize_judge_score(score: JudgeScore) -> dict:
+    return {
+        "turn_index": score.turn_index,
+        "method_key": score.method_key,
+        "score": score.score,
+        "reasoning": score.reasoning,
     }
 
 
@@ -216,6 +243,8 @@ def _serialize_prompt_artifacts(artifacts: PromptArtifacts) -> dict:
     }
 
 
+# ── Deserialization ────────────────────────────────────────────
+
 def _deserialize_app_state(payload: dict) -> AppState:
     return AppState(
         method_states={
@@ -223,6 +252,8 @@ def _deserialize_app_state(payload: dict) -> AppState:
             for method_key, state_payload in payload.get("method_states", {}).items()
         },
         rag_chunks=[_deserialize_document_chunk(chunk) for chunk in payload.get("rag_chunks", [])],
+        judge_references=[_deserialize_judge_reference(ref) for ref in payload.get("judge_references", [])],
+        judge_scores=[_deserialize_judge_score(score) for score in payload.get("judge_scores", [])],
     )
 
 
@@ -275,6 +306,25 @@ def _deserialize_method_metrics(payload: dict) -> MethodMetrics:
         total_tokens=int(payload["total_tokens"]),
         latency_seconds=float(payload["latency_seconds"]),
         compression_ratio=float(payload["compression_ratio"]),
+        prep_time=float(payload.get("prep_time", 0.0)),
+        thread_name=str(payload.get("thread_name", "")),
+    )
+
+
+def _deserialize_judge_reference(payload: dict) -> JudgeReference:
+    return JudgeReference(
+        turn_index=int(payload["turn_index"]),
+        question=str(payload["question"]),
+        reference_answer=str(payload["reference_answer"]),
+    )
+
+
+def _deserialize_judge_score(payload: dict) -> JudgeScore:
+    return JudgeScore(
+        turn_index=int(payload["turn_index"]),
+        method_key=str(payload["method_key"]),
+        score=float(payload["score"]),
+        reasoning=str(payload["reasoning"]),
     )
 
 

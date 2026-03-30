@@ -3,24 +3,23 @@ from __future__ import annotations
 import time
 from typing import List, Tuple
 
-from openai import AzureOpenAI
+from openai import OpenAI
 
 from src.config import Settings
 
 
-class AzureAIClient:
+class OpenAIClient:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.client = AzureOpenAI(
-            api_key=settings.azure_api_key,
-            api_version=settings.azure_api_version,
-            azure_endpoint=settings.azure_endpoint,
-        )
+        kwargs = {"api_key": settings.openai_api_key}
+        if settings.openai_base_url:
+            kwargs["base_url"] = settings.openai_base_url
+        self.client = OpenAI(**kwargs)
 
     def chat_completion(self, messages: List[dict]) -> Tuple[str, dict, float]:
         started = time.perf_counter()
         response = self.client.chat.completions.create(
-            model=self.settings.azure_deployment,
+            model=self.settings.openai_model,
             messages=messages,
             seed=self.settings.chat_seed,
         )
