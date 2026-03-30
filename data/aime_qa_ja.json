@@ -1,0 +1,220 @@
+[
+  {
+    "id": 1,
+    "question": "AimeCardの全体的な処理パイプラインは何ですか？",
+    "reference_answer": "処理パイプラインは、画像入力 → OCR → テキスト抽出 → 構造解析 → 情報理解 → 出力であり、必要に応じて顔認証も含まれます。",
+    "type": "factual"
+  },
+  {
+    "id": 2,
+    "question": "AimeCardで文字領域検出に使用されるアルゴリズムは何ですか？",
+    "reference_answer": "文字領域検出にはPixelLinkアルゴリズムが使用され、バウンディングボックスを生成します。",
+    "type": "factual"
+  },
+  {
+    "id": 3,
+    "question": "AimeCardで文字認識に使用されるモデルは何ですか？",
+    "reference_answer": "バウンディングボックス検出後、CRNNおよびTransformerモデルが文字認識に使用されます。",
+    "type": "factual"
+  },
+  {
+    "id": 4,
+    "question": "AimeCardのパイプラインにおけるNLPの役割は何ですか？",
+    "reference_answer": "NLPはOCR後のスペルミス修正や欠損情報の補完を行い、最終的なテキスト品質を向上させます。",
+    "type": "factual"
+  },
+  {
+    "id": 5,
+    "question": "AimeCardにおける活字の認識精度はどの程度ですか？",
+    "reference_answer": "活字の文字認識精度は文字レベルで約99%です。",
+    "type": "factual"
+  },
+  {
+    "id": 6,
+    "question": "AimeCardにおける手書き文字の認識精度はどの程度ですか？",
+    "reference_answer": "丁寧な手書き文字に対しては約96%の認識精度です。",
+    "type": "factual"
+  },
+
+  {
+    "id": 7,
+    "question": "先ほどOCRパイプラインについて説明しましたが、OCRの誤りを修正するステップはどれですか？",
+    "reference_answer": "OCRの誤りを修正し、不足情報を補完するのはNLPのステップです。",
+    "type": "callback_block0"
+  },
+
+  {
+    "id": 8,
+    "question": "AimeCardはどのような種類のドキュメントを処理できますか？",
+    "reference_answer": "パスポート、運転免許証、IDカード、請求書、財務報告書などの各種ドキュメント画像を処理できます。",
+    "type": "factual"
+  },
+  {
+    "id": 9,
+    "question": "AimeCardはどのようなAPI機能を提供していますか？",
+    "reference_answer": "RESTful APIを提供し、オンプレミス環境での利用にも対応しています。",
+    "type": "factual"
+  },
+  {
+    "id": 10,
+    "question": "AimeCardは文字以外にどのような対象を認識できますか？",
+    "reference_answer": "印鑑、ロゴ、顔なども認識することができます。",
+    "type": "factual"
+  },
+  {
+    "id": 11,
+    "question": "AimeCardにおいて画像品質を改善する前処理は何ですか？",
+    "reference_answer": "ノイズ除去や画像品質向上の前処理によってOCR性能を改善します。",
+    "type": "factual"
+  },
+  {
+    "id": 12,
+    "question": "AimeCardはどのような幾何補正に対応していますか？",
+    "reference_answer": "回転補正や台形補正（遠近補正）に対応しています。",
+    "type": "factual"
+  },
+  {
+    "id": 13,
+    "question": "AimeCardで辞書を追加する目的は何ですか？",
+    "reference_answer": "頻出語や業界特有の用語を優先的に認識させることで精度を向上させるためです。",
+    "type": "factual"
+  },
+
+  {
+    "id": 14,
+    "question": "先ほど幾何補正について説明しましたが、それはどのような問題を解決しますか？",
+    "reference_answer": "傾いたり歪んだ画像でも正しくOCR処理を行えるようにします。",
+    "type": "callback_block1"
+  },
+
+  {
+    "id": 15,
+    "question": "AimeFluentチャットボットの主な機能は何ですか？",
+    "reference_answer": "ルール、FAQ、RAG、生成AIを組み合わせてユーザの問い合わせに自動応答することです。",
+    "type": "factual"
+  },
+  {
+    "id": 16,
+    "question": "AimeFluentの回答優先順位はどのようになっていますか？",
+    "reference_answer": "ルール/シナリオ → FAQ → RAG → LLMの順です。",
+    "type": "factual"
+  },
+  {
+    "id": 17,
+    "question": "AimeFluentでルールやFAQに該当しない場合はどうなりますか？",
+    "reference_answer": "まずRAGが呼び出され、それでも回答できない場合は生成AIにフォールバックします。",
+    "type": "factual"
+  },
+  {
+    "id": 18,
+    "question": "AimeFluentは異なる言い回しのユーザ入力をどのように処理しますか？",
+    "reference_answer": "言語の揺らぎを正規化し、異なる表現でも同じ意味として扱います。",
+    "type": "factual"
+  },
+  {
+    "id": 19,
+    "question": "AimeFluentにおけるRAGの役割は何ですか？",
+    "reference_answer": "データベースから関連文書を検索し、コンテキストとしてプロンプトに追加して回答精度を向上させます。",
+    "type": "factual"
+  },
+  {
+    "id": 20,
+    "question": "AimeFluentにおけるLLMの役割は何ですか？",
+    "reference_answer": "ルール、FAQ、RAGで対応できない場合に回答を生成するフォールバック機構です。",
+    "type": "factual"
+  },
+
+  {
+    "id": 21,
+    "question": "先ほど回答優先順位について説明しましたが、最終的なフォールバックとして使われるのは何ですか？",
+    "reference_answer": "最終フォールバックとして使用されるのはLLM（生成AI）です。",
+    "type": "callback_block2"
+  },
+
+  {
+    "id": 22,
+    "question": "AimeGPTを企業データに適応させる方法は何ですか？",
+    "reference_answer": "ファインチューニングとRAGの2つの方法があります。",
+    "type": "factual"
+  },
+  {
+    "id": 23,
+    "question": "AimeGPTにおけるファインチューニングの目的は何ですか？",
+    "reference_answer": "ドメイン特化データで学習することで回答精度を向上させることです。",
+    "type": "factual"
+  },
+  {
+    "id": 24,
+    "question": "AimeGPTで述べられているRAGの制約は何ですか？",
+    "reference_answer": "コンテキスト長の制限があるため、大量の文書では効果が低下する可能性があります。",
+    "type": "factual"
+  },
+  {
+    "id": 25,
+    "question": "AimeCardにおける文字領域検出の出力は何ですか？",
+    "reference_answer": "文字領域検出の出力はバウンディングボックスであり、その後の文字認識の入力となります。",
+    "type": "factual"
+  },
+  {
+    "id": 26,
+    "question": "AimeCardのOCR処理後に行われる構造解析の目的は何ですか？",
+    "reference_answer": "構造解析はテキストの配置や関係を理解し、意味のある情報として整理するために行われます。",
+    "type": "factual"
+  },
+  {
+    "id": 27,
+    "question": "AimeCardで抽出可能な情報項目にはどのようなものがありますか？",
+    "reference_answer": "氏名、日付、金額、住所、契約条件などの情報項目を抽出できます。",
+    "type": "factual"
+  },
+  {
+    "id": 28,
+    "question": "AimeFluentでオペレーターへの転送はどのような場合に行われますか？",
+    "reference_answer": "ルール、FAQ、RAG、LLMのいずれでも対応できない場合や必要に応じてオペレーターへ転送されます。",
+    "type": "factual"
+  },
+  {
+    "id": 29,
+    "question": "AimeFluentにおけるシナリオ設計の主な要素は何ですか？",
+    "reference_answer": "フロー定義、条件分岐、ループ処理、およびフォールバック処理が主な要素です。",
+    "type": "factual"
+  },
+  {
+    "id": 30,
+    "question": "AimeFluentでfallbackとして使用される選択肢には何がありますか？",
+    "reference_answer": "生成AIによる回答、人間オペレーターへの転送、またはフィードバック学習がfallbackとして使用されます。",
+    "type": "factual"
+  },
+
+  {
+    "id": 31,
+    "question": "先ほどシナリオ設計について説明しましたが、条件分岐はどのような役割を持っていますか？",
+    "reference_answer": "条件分岐はユーザの入力や状態に応じて処理の流れを変えるために使用されます。",
+    "type": "callback_block3"
+  },
+
+  {
+    "id": 32,
+    "question": "AimeGPTはどのような言語データで主に学習されていますか？",
+    "reference_answer": "主に日本語データ（約95%）と一部英語データ（約5%）で学習されています。",
+    "type": "factual"
+  },
+  {
+    "id": 33,
+    "question": "AimeGPTの実行環境における特徴は何ですか？",
+    "reference_answer": "軽量モデルであり、小型GPU（約16GB VRAM）でも実行可能です。",
+    "type": "factual"
+  },
+  {
+    "id": 34,
+    "question": "AimeGPTがプライベートLLMと呼ばれる理由は何ですか？",
+    "reference_answer": "インターネット接続を必要とせず、完全にオンプレミス環境で動作するためです。",
+    "type": "factual"
+  },
+  {
+    "id": 35,
+    "question": "AimeGPTにおけるRAGの基本的な処理フローは何ですか？",
+    "reference_answer": "社内データベースから検索 → 関連文書抽出 → コンテキスト生成 → LLM入力 → 回答生成という流れです。",
+    "type": "factual"
+  }
+]

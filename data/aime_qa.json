@@ -1,0 +1,220 @@
+[
+  {
+    "id": 1,
+    "question": "What is the overall processing pipeline of AimeCard?",
+    "reference_answer": "The pipeline is: image input → OCR → text extraction → structure analysis → information understanding → output, with optional face verification.",
+    "type": "factual"
+  },
+  {
+    "id": 2,
+    "question": "Which algorithm is used for text region detection in AimeCard?",
+    "reference_answer": "PixelLink is used to detect text regions and generate bounding boxes.",
+    "type": "factual"
+  },
+  {
+    "id": 3,
+    "question": "What models are used for text recognition in AimeCard?",
+    "reference_answer": "CRNN and Transformer models are used for text recognition after bounding boxes are detected.",
+    "type": "factual"
+  },
+  {
+    "id": 4,
+    "question": "What is the role of NLP in the AimeCard pipeline?",
+    "reference_answer": "NLP is used to correct spelling errors and complete missing information after OCR recognition.",
+    "type": "factual"
+  },
+  {
+    "id": 5,
+    "question": "What is the typical accuracy of printed text recognition in AimeCard?",
+    "reference_answer": "Printed text recognition accuracy is around 99% at the character level.",
+    "type": "factual"
+  },
+  {
+    "id": 6,
+    "question": "What is the typical accuracy of handwritten text recognition in AimeCard?",
+    "reference_answer": "Handwritten text recognition accuracy is around 96% for clean handwriting.",
+    "type": "factual"
+  },
+
+  {
+    "id": 7,
+    "question": "Earlier you mentioned the OCR pipeline. Which step is responsible for correcting OCR mistakes?",
+    "reference_answer": "The NLP step is responsible for correcting OCR mistakes and completing missing text.",
+    "type": "callback_block0"
+  },
+
+  {
+    "id": 8,
+    "question": "What types of documents can AimeCard process?",
+    "reference_answer": "It can process passports, driver licenses, ID cards, invoices, financial reports, and other document images.",
+    "type": "factual"
+  },
+  {
+    "id": 9,
+    "question": "What API capability does AimeCard provide?",
+    "reference_answer": "AimeCard provides RESTful API integration and supports on-premise deployment.",
+    "type": "factual"
+  },
+  {
+    "id": 10,
+    "question": "What types of objects besides text can AimeCard recognize?",
+    "reference_answer": "It can recognize stamps, logos, and faces in documents.",
+    "type": "factual"
+  },
+  {
+    "id": 11,
+    "question": "What preprocessing technique helps improve image quality in AimeCard?",
+    "reference_answer": "Noise reduction and image quality enhancement preprocessing improve OCR performance.",
+    "type": "factual"
+  },
+  {
+    "id": 12,
+    "question": "What geometric corrections does AimeCard support?",
+    "reference_answer": "It supports rotation correction and perspective (trapezoid) correction for tilted images.",
+    "type": "factual"
+  },
+  {
+    "id": 13,
+    "question": "What is the purpose of adding a dictionary in AimeCard?",
+    "reference_answer": "It prioritizes frequently used or domain-specific terms to improve recognition accuracy.",
+    "type": "factual"
+  },
+
+  {
+    "id": 14,
+    "question": "Earlier you mentioned geometric correction. What problem does it solve?",
+    "reference_answer": "It allows OCR to work correctly on rotated or distorted images.",
+    "type": "callback_block1"
+  },
+
+  {
+    "id": 15,
+    "question": "What is the main function of AimeFluent chatbot?",
+    "reference_answer": "It automatically handles user inquiries using rules, FAQ, RAG, and generative AI.",
+    "type": "factual"
+  },
+  {
+    "id": 16,
+    "question": "What is the response priority order in AimeFluent?",
+    "reference_answer": "The order is rule/scenario → FAQ → RAG → LLM.",
+    "type": "factual"
+  },
+  {
+    "id": 17,
+    "question": "What happens when no rule or FAQ matches in AimeFluent?",
+    "reference_answer": "The system calls RAG, and if that fails, it falls back to generative AI.",
+    "type": "factual"
+  },
+  {
+    "id": 18,
+    "question": "How does AimeFluent handle different user expressions with the same meaning?",
+    "reference_answer": "It normalizes language variations so different expressions map to the same meaning.",
+    "type": "factual"
+  },
+  {
+    "id": 19,
+    "question": "What is the role of RAG in AimeFluent?",
+    "reference_answer": "RAG retrieves relevant documents from a database and injects them into the prompt for answering.",
+    "type": "factual"
+  },
+  {
+    "id": 20,
+    "question": "What is the role of LLM in AimeFluent?",
+    "reference_answer": "The LLM generates answers when rule, FAQ, and RAG cannot provide a response.",
+    "type": "factual"
+  },
+
+  {
+    "id": 21,
+    "question": "Earlier you mentioned the response priority. Which component is used as the final fallback?",
+    "reference_answer": "The LLM (generative AI) is used as the final fallback.",
+    "type": "callback_block2"
+  },
+
+  {
+    "id": 22,
+    "question": "What are the two methods to adapt AimeGPT to company data?",
+    "reference_answer": "Fine-tuning the model and using RAG with a document database.",
+    "type": "factual"
+  },
+  {
+    "id": 23,
+    "question": "What is the main purpose of fine-tuning in AimeGPT?",
+    "reference_answer": "Fine-tuning improves accuracy by training the model on domain-specific data.",
+    "type": "factual"
+  },
+  {
+    "id": 24,
+    "question": "What is the limitation of RAG mentioned in AimeGPT?",
+    "reference_answer": "RAG is limited by context size, so large documents may reduce effectiveness.",
+    "type": "factual"
+  },
+  {
+    "id": 25,
+    "question": "What is the output of the text region detection step in AimeCard?",
+    "reference_answer": "The output is bounding boxes that define text regions, which are then used as input for text recognition.",
+    "type": "factual"
+  },
+  {
+    "id": 26,
+    "question": "What is the purpose of structure analysis after OCR in AimeCard?",
+    "reference_answer": "Structure analysis organizes extracted text based on layout and relationships to produce meaningful structured information.",
+    "type": "factual"
+  },
+  {
+    "id": 27,
+    "question": "What types of information can AimeCard extract from documents?",
+    "reference_answer": "It can extract fields such as name, date, amount, address, and contract-related information.",
+    "type": "factual"
+  },
+  {
+    "id": 28,
+    "question": "When does AimeFluent escalate a query to a human operator?",
+    "reference_answer": "It escalates when rule, FAQ, RAG, and LLM cannot sufficiently handle the query or when escalation is explicitly required.",
+    "type": "factual"
+  },
+  {
+    "id": 29,
+    "question": "What are the key components of scenario design in AimeFluent?",
+    "reference_answer": "Scenario design includes flow definition, conditional branching, looping, and fallback handling.",
+    "type": "factual"
+  },
+  {
+    "id": 30,
+    "question": "What fallback options are available in AimeFluent?",
+    "reference_answer": "Fallback options include generative AI responses, human operator escalation, and feedback-based learning.",
+    "type": "factual"
+  },
+
+  {
+    "id": 31,
+    "question": "Earlier you mentioned scenario design. What is the role of conditional branching?",
+    "reference_answer": "Conditional branching allows the system to change the flow based on user input or system state.",
+    "type": "callback_block3"
+  },
+
+  {
+    "id": 32,
+    "question": "What type of language data is AimeGPT primarily trained on?",
+    "reference_answer": "AimeGPT is primarily trained on Japanese data (about 95%) with a smaller portion of English data (about 5%).",
+    "type": "factual"
+  },
+  {
+    "id": 33,
+    "question": "What is a key characteristic of AimeGPT's deployment environment?",
+    "reference_answer": "It is a lightweight model that can run on relatively small GPU servers, such as those with around 16GB VRAM.",
+    "type": "factual"
+  },
+  {
+    "id": 34,
+    "question": "Why is AimeGPT considered a private LLM?",
+    "reference_answer": "Because it can run fully on-premise without requiring internet connectivity, ensuring data privacy.",
+    "type": "factual"
+  },
+  {
+    "id": 35,
+    "question": "What is the basic processing flow of RAG in AimeGPT?",
+    "reference_answer": "The flow is: retrieve documents from a database → filter relevant content → generate context → input to LLM → generate answer.",
+    "type": "factual"
+  }
+]
