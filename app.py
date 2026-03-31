@@ -18,6 +18,7 @@ from src.models import ChatTurn, MethodMetrics
 from src.persistence import delete_snapshot, init_db, list_snapshots, load_snapshot, merge_settings, save_snapshot, update_snapshot
 from src.prompt_builders import prepare_prompt
 from src.rag import chunk_text, extract_text_from_upload
+from src.prompt_logger import list_log_files, load_log_file, LOG_DIR
 from src.runtime import METHOD_LABELS, build_initial_state, run_all_methods
 from src.tokenizer import count_tokens
 
@@ -494,6 +495,73 @@ def render_judge_tab(app_state, settings):
         st.dataframe(score_df, hide_index=True, use_container_width=True)
 
 
+def render_prompt_logs_tab():
+    st.subheader("Prompt Logs")
+    st.caption("Full prompts sent to the API and token usage for each method, per turn.")
+
+    log_files = list_log_files()
+    if not log_files:
+        st.info("No logs yet. Chat to generate prompt logs.")
+        return
+
+    selected_file = st.selectbox(
+        "Select turn log",
+        options=log_files,
+        format_func=lambda f: f.stem,
+        index=len(log_files) - 1,
+    )
+
+    log_data = load_log_file(selected_file)
+    if log_data is None:
+        st.error("Failed to load log file.")
+        return
+
+    st.markdown(f"**Turn {log_data['turn_index']}** — {log_data['timestamp']}")
+    st.markdown(f"**User message:** {log_data['user_message']}")
+
+    # Token summary table
+    summary_rows = []
+    for entry in log_data["methods"]:
+        usage = entry["token_usage"]
+        summary_rows.append({
+            "Method": entry["label"],
+            "Prompt Tokens": usage["actual_input_tokens"],
+            "Output Tokens": usage["actual_output_tokens"],
+            "Total Tokens": usage["total_tokens"],
+            "Latency (s)": entry["latency_seconds"],
+            "Compression": entry["compression"]["ratio"],
+        })
+    st.dataframe(pd.DataFrame(summary_rows), hide_index=True, use_container_width=True)
+
+    # Per-method expandable details
+    for entry in log_data["methods"]:
+        with st.expander(entry["label"], expanded=False):
+            messages = entry["messages_sent"]
+
+            st.markdown("**System prompt:**")
+            st.code(messages[0]["content"], language=None)
+
+            st.markdown("**User payload (full prompt sent to API):**")
+            user_content = messages[1]["content"]
+            # Truncate display if very long, but allow full view
+            if len(user_content) > 3000:
+                st.code(user_content[:3000] + "\n\n... (truncated)", language=None)
+                with st.expander("Show full prompt", expanded=False):
+                    st.code(user_content, language=None)
+            else:
+                st.code(user_content, language=None)
+
+            st.markdown("**Token usage:**")
+            st.json(entry["token_usage"])
+
+            if entry["compression"]["attempted"]:
+                st.markdown("**Compression:**")
+                st.json(entry["compression"])
+
+            st.markdown("**Assistant response:**")
+            st.markdown(entry["assistant_response"])
+
+
 def _format_snapshot_time(timestamp: float | None) -> str:
     if timestamp is None:
         return "-"
@@ -698,8 +766,8 @@ if chat_input:
 
 latest_results = st.session_state.get("latest_results", [])
 
-overview_tab, windows_tab, charts_tab, judge_tab, debug_tab = st.tabs(
-    ["Overview", "5 Windows", "Charts", "LLM Judge", "Debug"]
+overview_tab, windows_tab, charts_tab, judge_tab, logs_tab, debug_tab = st.tabs(
+    ["Overview", "5 Windows", "Charts", "LLM Judge", "Prompt Logs", "Debug"]
 )
 
 with overview_tab:
@@ -760,6 +828,9 @@ with charts_tab:
 
 with judge_tab:
     render_judge_tab(app_state, settings)
+
+with logs_tab:
+    render_prompt_logs_tab()
 
 with debug_tab:
     st.write("Method summaries")

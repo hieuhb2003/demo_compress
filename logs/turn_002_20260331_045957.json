@@ -1,0 +1,152 @@
+{
+  "turn_index": 2,
+  "timestamp": "20260331_045957",
+  "user_message": "how are you",
+  "methods": [
+    {
+      "method_key": "summary_window",
+      "label": "Method 1: Summary Window",
+      "messages_sent": [
+        {
+          "role": "system",
+          "content": "You are a helpful assistant in a prompt-compression demo. Answer precisely, keep continuity with prior turns, and use retrieved document context when relevant."
+        },
+        {
+          "role": "user",
+          "content": "[Turn 1] User: hello\n[Turn 1] Assistant: Hello! How can I assist you today?\n\n[Current user message]\nhow are you"
+        }
+      ],
+      "token_usage": {
+        "estimated_input_tokens": 72,
+        "actual_input_tokens": 73,
+        "actual_output_tokens": 29,
+        "total_tokens": 102
+      },
+      "latency_seconds": 1.626,
+      "prep_time_seconds": 0.001,
+      "compression": {
+        "attempted": false,
+        "applied": false,
+        "ratio": 1.0,
+        "error": null
+      },
+      "assistant_response": "I'm just a program, so I don't have feelings, but I'm here and ready to help you! How about you? How are you doing?"
+    },
+    {
+      "method_key": "summary_retrieval",
+      "label": "Method 2: Summary Retrieval",
+      "messages_sent": [
+        {
+          "role": "system",
+          "content": "You are a helpful assistant in a prompt-compression demo. Answer precisely, keep continuity with prior turns, and use retrieved document context when relevant."
+        },
+        {
+          "role": "user",
+          "content": "[Turn 1] User: hello\n[Turn 1] Assistant: Hello! How can I assist you today?\n\n[Current user message]\nhow are you"
+        }
+      ],
+      "token_usage": {
+        "estimated_input_tokens": 72,
+        "actual_input_tokens": 73,
+        "actual_output_tokens": 24,
+        "total_tokens": 97
+      },
+      "latency_seconds": 1.827,
+      "prep_time_seconds": 0.0,
+      "compression": {
+        "attempted": false,
+        "applied": false,
+        "ratio": 1.0,
+        "error": null
+      },
+      "assistant_response": "I'm just a program, so I don't have feelings, but I'm here and ready to help you! How about you?"
+    },
+    {
+      "method_key": "summary_window_llmlingua",
+      "label": "Method 3: Summary Window + LLMLingua",
+      "messages_sent": [
+        {
+          "role": "system",
+          "content": "You are a helpful assistant in a prompt-compression demo. Answer precisely, keep continuity with prior turns, and use retrieved document context when relevant."
+        },
+        {
+          "role": "user",
+          "content": "[Turn 1] User hello\n] Assistant assist today\n\n[Current user message]\nhow are you"
+        }
+      ],
+      "token_usage": {
+        "estimated_input_tokens": 60,
+        "actual_input_tokens": 61,
+        "actual_output_tokens": 12,
+        "total_tokens": 73
+      },
+      "latency_seconds": 1.54,
+      "prep_time_seconds": 5.707,
+      "compression": {
+        "attempted": true,
+        "applied": true,
+        "ratio": 0.5867,
+        "error": null
+      },
+      "assistant_response": "I'm here to help! How can I assist you today?"
+    },
+    {
+      "method_key": "summary_retrieval_llmlingua",
+      "label": "Method 4: Summary Retrieval + LLMLingua",
+      "messages_sent": [
+        {
+          "role": "system",
+          "content": "You are a helpful assistant in a prompt-compression demo. Answer precisely, keep continuity with prior turns, and use retrieved document context when relevant."
+        },
+        {
+          "role": "user",
+          "content": "[Turn 1] User hello\n] Assistant assist today\n\n[Current user message]\nhow are you"
+        }
+      ],
+      "token_usage": {
+        "estimated_input_tokens": 60,
+        "actual_input_tokens": 61,
+        "actual_output_tokens": 12,
+        "total_tokens": 73
+      },
+      "latency_seconds": 1.378,
+      "prep_time_seconds": 0.072,
+      "compression": {
+        "attempted": true,
+        "applied": true,
+        "ratio": 0.5867,
+        "error": null
+      },
+      "assistant_response": "I'm here to help! How can I assist you today?"
+    },
+    {
+      "method_key": "full_history",
+      "label": "Method 5: Full History",
+      "messages_sent": [
+        {
+          "role": "system",
+          "content": "You are a helpful assistant in a prompt-compression demo. Answer precisely, keep continuity with prior turns, and use retrieved document context when relevant."
+        },
+        {
+          "role": "user",
+          "content": "[Turn 1] User: hello\n[Turn 1] Assistant: Hello! How can I assist you today?\n\n[Current user message]\nhow are you"
+        }
+      ],
+      "token_usage": {
+        "estimated_input_tokens": 72,
+        "actual_input_tokens": 73,
+        "actual_output_tokens": 27,
+        "total_tokens": 100
+      },
+      "latency_seconds": 1.803,
+      "prep_time_seconds": 0.0,
+      "compression": {
+        "attempted": false,
+        "applied": false,
+        "ratio": 1.0,
+        "error": null
+      },
+      "assistant_response": "I'm just a program, so I don't have feelings, but I'm here and ready to help you! How can I assist you today?"
+    }
+  ]
+}

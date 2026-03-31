@@ -10,6 +10,7 @@ from src.local_embeddings import OpenAIEmbeddingClient
 from src.models import AppState, ChatTurn, ConversationState, DocumentChunk, MethodMetrics, MethodResult, PromptArtifacts
 from src.openai_client import OpenAIClient
 from src.prompt_builders import build_messages_from_artifacts, prepare_prompt
+from src.prompt_logger import log_turn_results
 from src.retrievers import retrieve_document_chunks
 from src.summarizers import ensure_summary_jobs
 
@@ -157,5 +158,7 @@ def run_all_methods(
             prompt_artifacts=artifacts,
             metrics=metrics,
         ))
+
+    log_turn_results(results, user_message)
 
     return results
