@@ -11,9 +11,8 @@ from src.models import AppState, JudgeReference, JudgeScore
 
 
 JUDGE_SYSTEM_PROMPT = (
-    "You are an expert evaluator assessing AI responses about the paper "
-    '"Attention Is All You Need" by Vaswani et al. (2017). '
-    "Rate responses strictly on accuracy, completeness, and relevance."
+    "You are an expert evaluator assessing AI responses based on a provided "
+    "reference answer. Rate responses strictly on accuracy, completeness, and relevance."
 )
 
 JUDGE_USER_TEMPLATE = """\
@@ -24,9 +23,9 @@ Reference Answer: {reference_answer}
 Model Response: {response}
 
 Rate the model response on a scale of 1-10:
-- Accuracy: Is the information factually correct?
-- Completeness: Does it cover the key points from the reference?
-- Relevance: Does it directly address the question?
+- Accuracy: Is the information factually correct compared to the reference?
+- Completeness: Does it cover the key points from the reference answer?
+- Relevance: Does it directly address the question asked?
 
 Respond ONLY with valid JSON: {{"score": <integer 1-10>, "reasoning": "<1-2 sentence explanation>"}}"""
 
